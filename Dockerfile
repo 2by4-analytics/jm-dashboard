@@ -1,3 +1,4 @@
-FROM nginx:1.27-alpine
-COPY . /usr/share/nginx/html
-EXPOSE 80
+FROM node:24-alpine
+WORKDIR /app
+COPY . .
+CMD ["node", "server.js"]
