@@ -2,115 +2,110 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Railway Expenses Balance</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>JM Expenses</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div class="page-shell">
-      <header class="hero">
-        <div class="hero-copy">
-          <p class="eyebrow">Railway-ready tracker</p>
-          <h1>Expenses Balance</h1>
-          <p class="hero-text">
-            A web app version of the spreadsheet with the same monthly balance,
-            paid-bill tracking, and tithes math.
-          </p>
-          <div class="hero-actions">
-            <button id="add-bill-button" class="button button-primary" type="button">Add Bill</button>
-            <button id="reset-button" class="button button-secondary" type="button">Reset Month</button>
-          </div>
+    <div class="app-shell">
+      <header class="hero-card">
+        <div class="hero-topline">
+          <p class="eyebrow">JM Dashboard</p>
+          <p id="sync-status" class="sync-status">Loading</p>
         </div>
+        <h1>Monthly Bills</h1>
+        <p class="hero-text">Phone-first expense tracking with live Railway database sync.</p>
 
-        <section class="summary-card" aria-labelledby="summary-title">
-          <p id="summary-title" class="card-label">Current totals</p>
+        <section class="summary-stack" aria-labelledby="summary-title">
+          <div class="summary-head">
+            <p id="summary-title" class="section-label">Current snapshot</p>
+            <p id="as-of-label" class="summary-date">As of today</p>
+          </div>
           <div class="summary-grid">
-            <article>
-              <p class="metric-label" id="as-of-label">Total Due Monthly</p>
-              <p class="metric-value" id="unpaid-total">$0.00</p>
+            <article class="summary-tile summary-tile-primary">
+              <p class="tile-label">Still Due</p>
+              <p class="tile-value" id="unpaid-total">$0.00</p>
             </article>
-            <article>
-              <p class="metric-label">Paid Bills Total</p>
-              <p class="metric-value muted" id="paid-total">$0.00</p>
+            <article class="summary-tile">
+              <p class="tile-label">Paid</p>
+              <p class="tile-value" id="paid-total">$0.00</p>
             </article>
-            <article>
-              <p class="metric-label">Tithes Rate</p>
-              <p class="metric-value muted" id="tithes-rate">10%</p>
+            <article class="summary-tile">
+              <p class="tile-label">Tithes Rate</p>
+              <p class="tile-value" id="tithes-rate">10%</p>
             </article>
-            <article>
-              <p class="metric-label">Tithes Amount</p>
-              <p class="metric-value accent" id="tithes-total">$0.00</p>
+            <article class="summary-tile summary-tile-accent">
+              <p class="tile-label">Tithes</p>
+              <p class="tile-value" id="tithes-total">$0.00</p>
             </article>
           </div>
         </section>
       </header>
 
-      <main class="content-grid">
-        <section class="table-card" aria-labelledby="bills-title">
-          <div class="section-heading">
+      <main class="main-stack">
+        <section class="panel-card" aria-labelledby="bills-title">
+          <div class="panel-heading">
             <div>
-              <p class="section-kicker">Tracker</p>
+              <p class="section-label">Tracker</p>
               <h2 id="bills-title">Bills</h2>
             </div>
-            <p class="section-note">Only unpaid bills count toward the balance due.</p>
+            <p class="panel-note">Tap a bill to update it. Unpaid bills stay in the balance.</p>
           </div>
 
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">Bill Name</th>
-                  <th scope="col">Amount</th>
-                  <th scope="col">Paid?</th>
-                  <th scope="col" class="actions-column">Action</th>
-                </tr>
-              </thead>
-              <tbody id="bills-table-body"></tbody>
-            </table>
+          <div class="action-row">
+            <button id="add-bill-button" class="button button-primary" type="button">Add Bill</button>
+            <button id="reset-button" class="button button-secondary" type="button">Reset Month</button>
           </div>
+
+          <div id="bills-list" class="bills-list"></div>
         </section>
 
-        <aside class="instructions-card" aria-labelledby="instructions-title">
-          <div class="section-heading">
+        <aside class="panel-card panel-card-guide" aria-labelledby="guide-title">
+          <div class="panel-heading">
             <div>
-              <p class="section-kicker">Guide</p>
-              <h2 id="instructions-title">How To Use This App</h2>
+              <p class="section-label">Guide</p>
+              <h2 id="guide-title">How It Works</h2>
             </div>
           </div>
 
-          <ol class="instruction-list">
-            <li>Mark a bill as paid by changing the status from <strong>NO</strong> to <strong>YES</strong>.</li>
-            <li>The total due automatically subtracts any bill marked <strong>YES</strong>.</li>
-            <li>Tithes grow as bills are paid and equal <strong>10%</strong> of all paid bills combined.</li>
-            <li>The date in the main total updates automatically based on today.</li>
-            <li>Use <strong>Reset Month</strong> to switch all bills back to <strong>NO</strong>.</li>
-            <li>Use <strong>Add Bill</strong> to create a new bill row without touching formulas.</li>
+          <ol class="guide-list">
+            <li>Toggle each bill to <strong>Paid</strong> when you finish it.</li>
+            <li>The <strong>Still Due</strong> total drops automatically.</li>
+            <li><strong>Tithes</strong> stay at 10% of the paid total.</li>
+            <li>Everything saves to the live Railway database.</li>
+            <li><strong>Reset Month</strong> flips every bill back to unpaid.</li>
+            <li><strong>Add Bill</strong> creates a new bill row instantly.</li>
           </ol>
         </aside>
       </main>
     </div>
 
-    <template id="bill-row-template">
-      <tr>
-        <td><input class="bill-name-input" type="text" aria-label="Bill name" /></td>
-        <td>
-          <div class="amount-input-wrap">
-            <span>$</span>
-            <input class="bill-amount-input" type="number" min="0" step="0.01" aria-label="Bill amount" />
+    <template id="bill-card-template">
+      <article class="bill-card">
+        <div class="bill-card-top">
+          <div class="bill-main-fields">
+            <label class="field-block">
+              <span class="field-label">Bill name</span>
+              <input class="bill-name-input" type="text" aria-label="Bill name" />
+            </label>
+            <label class="field-block field-block-amount">
+              <span class="field-label">Amount</span>
+              <div class="amount-input-wrap">
+                <span>$</span>
+                <input class="bill-amount-input" type="number" min="0" step="0.01" inputmode="decimal" aria-label="Bill amount" />
+              </div>
+            </label>
           </div>
-        </td>
-        <td>
-          <label class="status-select-wrap">
-            <select class="bill-status-select" aria-label="Bill paid status">
-              <option value="NO">NO</option>
-              <option value="YES">YES</option>
-            </select>
-          </label>
-        </td>
-        <td class="actions-column">
+        </div>
+
+        <div class="bill-card-actions">
+          <div class="toggle-group" role="group" aria-label="Paid status">
+            <button class="toggle-button toggle-unpaid" type="button" data-value="NO">Unpaid</button>
+            <button class="toggle-button toggle-paid" type="button" data-value="YES">Paid</button>
+          </div>
           <button class="button button-danger delete-row-button" type="button">Delete</button>
-        </td>
-      </tr>
+        </div>
+      </article>
     </template>
 
     <script src="./app.js"></script>

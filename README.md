@@ -1,26 +1,26 @@
-# Railway Expenses Balance
+# JM Dashboard
 
-This is a Railway-deployable web app version of the shared Google Sheet.
+A Railway-hosted monthly bills tracker built from the shared spreadsheet.
 
-## What it replicates
+## Current stack
 
-- The original bill list
-- A YES / NO paid status for each bill
-- Total Due Monthly As Of today based on unpaid bills
-- Tithes equal to 10% of paid bills
-- A usage guide alongside the tracker
+- Mobile-first HTML, CSS, and browser JavaScript
+- Node HTTP server for static files and JSON API routes
+- Railway Postgres for persistent bill storage
 
-## Local behavior
+## Core behavior
 
-- Data is stored in browser localStorage
-- Bill names and amounts are editable
-- New bills can be added without changing formulas manually
-- Reset Month changes every bill back to NO
+- Edit bill names and amounts
+- Mark bills paid or unpaid
+- Reset the month in one tap
+- Automatically recalculate still-due total and tithes
+- Save every change to the live database
 
-## Deploying to Railway
+## Railway services
 
-1. Create a new Railway project from this folder or Git repo.
-2. Railway will detect the Dockerfile.
-3. Deploy the app and expose the generated service.
+- `web` for the app
+- `Postgres` for storage
 
-The container serves the app over port 80.
+## Custom domain
+
+Run a Railway domain attach once you know the exact hostname you want, for example a subdomain like `bills.example.com`.
