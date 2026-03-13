@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Railway Expenses Balance</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Railway-ready tracker</p>
+          <h1>Expenses Balance</h1>
+          <p class="hero-text">
+            A web app version of the spreadsheet with the same monthly balance,
+            paid-bill tracking, and tithes math.
+          </p>
+          <div class="hero-actions">
+            <button id="add-bill-button" class="button button-primary" type="button">Add Bill</button>
+            <button id="reset-button" class="button button-secondary" type="button">Reset Month</button>
+          </div>
+        </div>
+
+        <section class="summary-card" aria-labelledby="summary-title">
+          <p id="summary-title" class="card-label">Current totals</p>
+          <div class="summary-grid">
+            <article>
+              <p class="metric-label" id="as-of-label">Total Due Monthly</p>
+              <p class="metric-value" id="unpaid-total">$0.00</p>
+            </article>
+            <article>
+              <p class="metric-label">Paid Bills Total</p>
+              <p class="metric-value muted" id="paid-total">$0.00</p>
+            </article>
+            <article>
+              <p class="metric-label">Tithes Rate</p>
+              <p class="metric-value muted" id="tithes-rate">10%</p>
+            </article>
+            <article>
+              <p class="metric-label">Tithes Amount</p>
+              <p class="metric-value accent" id="tithes-total">$0.00</p>
+            </article>
+          </div>
+        </section>
+      </header>
+
+      <main class="content-grid">
+        <section class="table-card" aria-labelledby="bills-title">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">Tracker</p>
+              <h2 id="bills-title">Bills</h2>
+            </div>
+            <p class="section-note">Only unpaid bills count toward the balance due.</p>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Bill Name</th>
+                  <th scope="col">Amount</th>
+                  <th scope="col">Paid?</th>
+                  <th scope="col" class="actions-column">Action</th>
+                </tr>
+              </thead>
+              <tbody id="bills-table-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <aside class="instructions-card" aria-labelledby="instructions-title">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">Guide</p>
+              <h2 id="instructions-title">How To Use This App</h2>
+            </div>
+          </div>
+
+          <ol class="instruction-list">
+            <li>Mark a bill as paid by changing the status from <strong>NO</strong> to <strong>YES</strong>.</li>
+            <li>The total due automatically subtracts any bill marked <strong>YES</strong>.</li>
+            <li>Tithes grow as bills are paid and equal <strong>10%</strong> of all paid bills combined.</li>
+            <li>The date in the main total updates automatically based on today.</li>
+            <li>Use <strong>Reset Month</strong> to switch all bills back to <strong>NO</strong>.</li>
+            <li>Use <strong>Add Bill</strong> to create a new bill row without touching formulas.</li>
+          </ol>
+        </aside>
+      </main>
+    </div>
+
+    <template id="bill-row-template">
+      <tr>
+        <td><input class="bill-name-input" type="text" aria-label="Bill name" /></td>
+        <td>
+          <div class="amount-input-wrap">
+            <span>$</span>
+            <input class="bill-amount-input" type="number" min="0" step="0.01" aria-label="Bill amount" />
+          </div>
+        </td>
+        <td>
+          <label class="status-select-wrap">
+            <select class="bill-status-select" aria-label="Bill paid status">
+              <option value="NO">NO</option>
+              <option value="YES">YES</option>
+            </select>
+          </label>
+        </td>
+        <td class="actions-column">
+          <button class="button button-danger delete-row-button" type="button">Delete</button>
+        </td>
+      </tr>
+    </template>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
