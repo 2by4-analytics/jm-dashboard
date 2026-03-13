@@ -1,204 +1,270 @@
-const DEFAULT_TITHES_RATE = 0.1;
-const SAVE_DEBOUNCE_MS = 400;
+var DEFAULT_TITHES_RATE = 0.1;
+var SAVE_DEBOUNCE_MS = 400;
 
-const state = {
+var state = {
   bills: [],
   tithesRate: DEFAULT_TITHES_RATE,
-  saveTimers: new Map(),
+  saveTimers: {}
 };
 
-const elements = {
-  billsList: document.querySelector("#bills-list"),
-  cardTemplate: document.querySelector("#bill-card-template"),
-  unpaidTotal: document.querySelector("#unpaid-total"),
-  paidTotal: document.querySelector("#paid-total"),
-  tithesRate: document.querySelector("#tithes-rate"),
-  tithesTotal: document.querySelector("#tithes-total"),
-  asOfLabel: document.querySelector("#as-of-label"),
-  syncStatus: document.querySelector("#sync-status"),
-  addBillButton: document.querySelector("#add-bill-button"),
-  resetButton: document.querySelector("#reset-button"),
+var elements = {
+  billsList: document.getElementById("bills-list"),
+  unpaidTotal: document.getElementById("unpaid-total"),
+  paidTotal: document.getElementById("paid-total"),
+  tithesRate: document.getElementById("tithes-rate"),
+  tithesTotal: document.getElementById("tithes-total"),
+  asOfLabel: document.getElementById("as-of-label"),
+  syncStatus: document.getElementById("sync-status"),
+  addBillButton: document.getElementById("add-bill-button"),
+  resetButton: document.getElementById("reset-button")
 };
 
 boot();
 
-async function boot() {
+function boot() {
   bindActions();
-  await loadState();
+  loadState();
 }
 
 function bindActions() {
-  elements.addBillButton.addEventListener("click", addBill);
-  elements.resetButton.addEventListener("click", resetBills);
+  elements.addBillButton.onclick = addBill;
+  elements.resetButton.onclick = resetBills;
 }
 
-async function loadState() {
+function loadState() {
   setSyncStatus("Loading", "");
 
-  try {
-    const response = await fetch("/api/state");
-    if (!response.ok) throw new Error("Unable to load data");
+  requestJson("GET", "/api/state", null, function (error, payload) {
+    if (error) {
+      console.error(error);
+      setSyncStatus("Offline", "sync-error");
+      return;
+    }
 
-    const payload = await response.json();
-    state.bills = payload.bills || [];
-    state.tithesRate = typeof payload.tithesRate === "number" ? payload.tithesRate : DEFAULT_TITHES_RATE;
+    state.bills = payload && payload.bills ? payload.bills : [];
+    state.tithesRate = payload && typeof payload.tithesRate === "number" ? payload.tithesRate : DEFAULT_TITHES_RATE;
     render();
     setSyncStatus("Synced", "sync-ok");
-  } catch (error) {
-    console.error(error);
-    setSyncStatus("Offline", "sync-error");
-  }
+  });
 }
 
-async function addBill() {
+function addBill() {
   setSyncStatus("Saving", "");
 
-  try {
-    const response = await fetch("/api/bills", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "", amount: 0, paid: "NO" }),
-    });
+  requestJson("POST", "/api/bills", { name: "", amount: 0, paid: "NO" }, function (error, bill) {
+    if (error) {
+      console.error(error);
+      setSyncStatus("Save failed", "sync-error");
+      return;
+    }
 
-    if (!response.ok) throw new Error("Unable to add bill");
-
-    const bill = await response.json();
     state.bills.push(bill);
     render();
     setSyncStatus("Synced", "sync-ok");
-  } catch (error) {
-    console.error(error);
-    setSyncStatus("Save failed", "sync-error");
-  }
+  });
 }
 
-async function resetBills() {
+function resetBills() {
   setSyncStatus("Saving", "");
 
-  try {
-    const response = await fetch("/api/reset", { method: "POST" });
-    if (!response.ok) throw new Error("Unable to reset bills");
+  requestJson("POST", "/api/reset", {}, function (error) {
+    if (error) {
+      console.error(error);
+      setSyncStatus("Save failed", "sync-error");
+      return;
+    }
 
-    state.bills = state.bills.map((bill) => ({ ...bill, paid: "NO" }));
+    for (var i = 0; i < state.bills.length; i += 1) {
+      state.bills[i].paid = "NO";
+    }
+
     render();
     setSyncStatus("Synced", "sync-ok");
-  } catch (error) {
-    console.error(error);
-    setSyncStatus("Save failed", "sync-error");
-  }
+  });
 }
 
 function render() {
   elements.billsList.innerHTML = "";
 
-  state.bills.forEach((bill) => {
-    const fragment = elements.cardTemplate.content.cloneNode(true);
-    const card = fragment.querySelector(".bill-card");
-    const nameInput = fragment.querySelector(".bill-name-input");
-    const amountInput = fragment.querySelector(".bill-amount-input");
-    const deleteButton = fragment.querySelector(".delete-row-button");
-    const toggleButtons = Array.from(fragment.querySelectorAll(".toggle-button"));
-
-    if (bill.paid === "YES") card.classList.add("bill-paid");
-
-    nameInput.value = bill.name;
-    amountInput.value = bill.amount ? String(bill.amount) : "";
-
-    toggleButtons.forEach((button) => {
-      button.classList.toggle("is-active", button.dataset.value === bill.paid);
-      button.addEventListener("click", async () => {
-        if (bill.paid === button.dataset.value) return;
-        bill.paid = button.dataset.value;
-        render();
-        await saveBillNow(bill);
-      });
-    });
-
-    nameInput.addEventListener("input", (event) => {
-      bill.name = event.target.value;
-      queueSave(bill);
-    });
-
-    amountInput.addEventListener("input", (event) => {
-      const nextAmount = Number.parseFloat(event.target.value);
-      bill.amount = Number.isFinite(nextAmount) ? nextAmount : 0;
-      renderSummary();
-      queueSave(bill);
-    });
-
-    deleteButton.addEventListener("click", async () => {
-      setSyncStatus("Saving", "");
-
-      try {
-        const response = await fetch(`/api/bills/${bill.id}`, { method: "DELETE" });
-        if (!response.ok) throw new Error("Unable to delete bill");
-
-        state.bills = state.bills.filter((currentBill) => currentBill.id !== bill.id);
-        render();
-        setSyncStatus("Synced", "sync-ok");
-      } catch (error) {
-        console.error(error);
-        setSyncStatus("Save failed", "sync-error");
-      }
-    });
-
-    elements.billsList.appendChild(fragment);
-  });
+  for (var i = 0; i < state.bills.length; i += 1) {
+    elements.billsList.appendChild(createBillCard(state.bills[i]));
+  }
 
   renderSummary();
 }
 
-function queueSave(bill) {
-  setSyncStatus("Saving", "");
-  clearTimeout(state.saveTimers.get(bill.id));
+function createBillCard(bill) {
+  var card = document.createElement("article");
+  card.className = "bill-card" + (bill.paid === "YES" ? " bill-paid" : "");
 
-  const timeoutId = window.setTimeout(async () => {
-    state.saveTimers.delete(bill.id);
-    await saveBillNow(bill);
-  }, SAVE_DEBOUNCE_MS);
+  var topRow = document.createElement("div");
+  topRow.className = "bill-top-row";
 
-  state.saveTimers.set(bill.id, timeoutId);
+  var nameWrap = document.createElement("label");
+  nameWrap.className = "bill-name-wrap";
+  var nameLabel = document.createElement("span");
+  nameLabel.className = "field-label";
+  nameLabel.textContent = "Bill";
+  var nameInput = document.createElement("input");
+  nameInput.className = "bill-name-input";
+  nameInput.type = "text";
+  nameInput.value = bill.name;
+  nameInput.setAttribute("aria-label", "Bill name");
+  nameInput.oninput = function (event) {
+    bill.name = event.target.value;
+    queueSave(bill);
+  };
+  nameWrap.appendChild(nameLabel);
+  nameWrap.appendChild(nameInput);
+
+  var amountWrap = document.createElement("label");
+  amountWrap.className = "bill-amount-wrap";
+  var amountLabel = document.createElement("span");
+  amountLabel.className = "field-label";
+  amountLabel.textContent = "Amount";
+  var amountBox = document.createElement("div");
+  amountBox.className = "amount-input-wrap";
+  var currencyMark = document.createElement("span");
+  currencyMark.className = "currency-mark";
+  currencyMark.textContent = "$";
+  var amountInput = document.createElement("input");
+  amountInput.className = "bill-amount-input";
+  amountInput.type = "number";
+  amountInput.min = "0";
+  amountInput.step = "0.01";
+  amountInput.setAttribute("inputmode", "decimal");
+  amountInput.setAttribute("aria-label", "Bill amount");
+  amountInput.value = bill.amount ? String(bill.amount) : "";
+  amountInput.oninput = function (event) {
+    var nextAmount = parseFloat(event.target.value);
+    bill.amount = isFinite(nextAmount) ? nextAmount : 0;
+    renderSummary();
+    queueSave(bill);
+  };
+  amountBox.appendChild(currencyMark);
+  amountBox.appendChild(amountInput);
+  amountWrap.appendChild(amountLabel);
+  amountWrap.appendChild(amountBox);
+
+  topRow.appendChild(nameWrap);
+  topRow.appendChild(amountWrap);
+
+  var bottomRow = document.createElement("div");
+  bottomRow.className = "bill-bottom-row";
+
+  var toggleGroup = document.createElement("div");
+  toggleGroup.className = "toggle-group";
+  toggleGroup.setAttribute("role", "group");
+  toggleGroup.setAttribute("aria-label", "Paid status");
+  toggleGroup.appendChild(createToggleButton(bill, "NO", "Unpaid"));
+  toggleGroup.appendChild(createToggleButton(bill, "YES", "Paid"));
+
+  var deleteButton = document.createElement("button");
+  deleteButton.className = "delete-link delete-row-button";
+  deleteButton.type = "button";
+  deleteButton.textContent = "Delete";
+  deleteButton.onclick = function () {
+    setSyncStatus("Saving", "");
+    requestJson("DELETE", "/api/bills/" + bill.id, null, function (error) {
+      if (error) {
+        console.error(error);
+        setSyncStatus("Save failed", "sync-error");
+        return;
+      }
+
+      var nextBills = [];
+      for (var i = 0; i < state.bills.length; i += 1) {
+        if (state.bills[i].id !== bill.id) nextBills.push(state.bills[i]);
+      }
+      state.bills = nextBills;
+      render();
+      setSyncStatus("Synced", "sync-ok");
+    });
+  };
+
+  bottomRow.appendChild(toggleGroup);
+  bottomRow.appendChild(deleteButton);
+
+  card.appendChild(topRow);
+  card.appendChild(bottomRow);
+  return card;
 }
 
-async function saveBillNow(bill) {
-  try {
-    const response = await fetch(`/api/bills/${bill.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: bill.name, amount: bill.amount, paid: bill.paid }),
-    });
+function createToggleButton(bill, value, label) {
+  var button = document.createElement("button");
+  button.className = "toggle-button" + (bill.paid === value ? " is-active" : "");
+  button.type = "button";
+  button.setAttribute("data-value", value);
+  button.textContent = label;
+  button.onclick = function () {
+    if (bill.paid === value) return;
+    bill.paid = value;
+    render();
+    saveBillNow(bill);
+  };
+  return button;
+}
 
-    if (!response.ok) throw new Error("Unable to save bill");
+function queueSave(bill) {
+  setSyncStatus("Saving", "");
+  if (state.saveTimers[bill.id]) {
+    clearTimeout(state.saveTimers[bill.id]);
+  }
 
-    const savedBill = await response.json();
-    const index = state.bills.findIndex((entry) => entry.id === savedBill.id);
-    if (index >= 0) state.bills[index] = savedBill;
+  state.saveTimers[bill.id] = setTimeout(function () {
+    delete state.saveTimers[bill.id];
+    saveBillNow(bill);
+  }, SAVE_DEBOUNCE_MS);
+}
+
+function saveBillNow(bill) {
+  requestJson("PATCH", "/api/bills/" + bill.id, {
+    name: bill.name,
+    amount: bill.amount,
+    paid: bill.paid
+  }, function (error, savedBill) {
+    if (error) {
+      console.error(error);
+      setSyncStatus("Save failed", "sync-error");
+      return;
+    }
+
+    for (var i = 0; i < state.bills.length; i += 1) {
+      if (state.bills[i].id === savedBill.id) {
+        state.bills[i] = savedBill;
+        break;
+      }
+    }
+
     render();
     setSyncStatus("Synced", "sync-ok");
-  } catch (error) {
-    console.error(error);
-    setSyncStatus("Save failed", "sync-error");
-  }
+  });
 }
 
 function renderSummary() {
-  const paidTotal = sumBills((bill) => bill.paid === "YES");
-  const unpaidTotal = sumBills((bill) => bill.paid !== "YES");
-  const tithesTotal = paidTotal * state.tithesRate;
+  var paidTotal = sumBills(function (bill) { return bill.paid === "YES"; });
+  var unpaidTotal = sumBills(function (bill) { return bill.paid !== "YES"; });
+  var tithesTotal = paidTotal * state.tithesRate;
 
   elements.unpaidTotal.textContent = formatCurrency(unpaidTotal);
   elements.paidTotal.textContent = formatCurrency(paidTotal);
-  elements.tithesRate.textContent = `${Math.round(state.tithesRate * 100)}%`;
+  elements.tithesRate.textContent = Math.round(state.tithesRate * 100) + "%";
   elements.tithesTotal.textContent = formatCurrency(tithesTotal);
-  elements.asOfLabel.textContent = `As of ${formatDate(new Date())}`;
+  elements.asOfLabel.textContent = "As of " + formatDate(new Date());
 }
 
 function sumBills(predicate) {
-  return state.bills.reduce((total, bill) => (predicate(bill) ? total + normalizeAmount(bill.amount) : total), 0);
+  var total = 0;
+  for (var i = 0; i < state.bills.length; i += 1) {
+    if (predicate(state.bills[i])) {
+      total += normalizeAmount(state.bills[i].amount);
+    }
+  }
+  return total;
 }
 
 function normalizeAmount(amount) {
-  return Number.isFinite(amount) ? amount : 0;
+  return isFinite(amount) ? amount : 0;
 }
 
 function formatCurrency(value) {
@@ -211,5 +277,41 @@ function formatDate(date) {
 
 function setSyncStatus(label, className) {
   elements.syncStatus.textContent = label;
-  elements.syncStatus.className = `sync-status ${className}`.trim();
+  elements.syncStatus.className = className ? "sync-status " + className : "sync-status";
+}
+
+function requestJson(method, url, body, callback) {
+  var request = new XMLHttpRequest();
+  request.open(method, url, true);
+  request.setRequestHeader("Accept", "application/json");
+
+  if (body) {
+    request.setRequestHeader("Content-Type", "application/json");
+  }
+
+  request.onreadystatechange = function () {
+    if (request.readyState !== 4) return;
+
+    if (request.status >= 200 && request.status < 300) {
+      if (!request.responseText) {
+        callback(null, null);
+        return;
+      }
+
+      try {
+        callback(null, JSON.parse(request.responseText));
+      } catch (error) {
+        callback(error);
+      }
+      return;
+    }
+
+    callback(new Error("Request failed with status " + request.status));
+  };
+
+  request.onerror = function () {
+    callback(new Error("Network request failed"));
+  };
+
+  request.send(body ? JSON.stringify(body) : null);
 }
