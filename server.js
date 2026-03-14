@@ -10,6 +10,7 @@ const root = __dirname;
 const tithesRate = 0.1;
 const currentMonthKey = "2026-03";
 const maxPdfBytes = 15 * 1024 * 1024;
+const taxCategories = ["Tax Return", "W-2", "1099", "State Filing", "Receipt", "Other"];
 const seedBills = [
   ["Child Support", 650, "NO"],
   ["Health Insurance", 300, "NO"],
@@ -63,7 +64,6 @@ start().catch((error) => {
 
 async function start() {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required.");
-
   await client.connect();
   await ensureSchema();
   await ensureSeedData();
@@ -81,6 +81,8 @@ async function start() {
           selectedMonth: monthKey,
           currentMonth: currentMonthKey,
           tithesRate: tithesRate,
+          taxCategories: taxCategories,
+          taxYears: listTaxYears(),
         });
       }
 
@@ -94,9 +96,7 @@ async function start() {
       }
 
       if (url.pathname === "/api/bills" && req.method === "POST") {
-        const body = await readJsonBody(req);
-        const bill = await createBill(monthKey, body || {});
-        return sendJson(res, 201, bill);
+        return sendJson(res, 201, await createBill(monthKey, await readJsonBody(req)));
       }
 
       if (url.pathname === "/api/reset" && req.method === "POST") {
@@ -105,21 +105,18 @@ async function start() {
       }
 
       if (url.pathname === "/api/tax-docs" && req.method === "GET") {
-        return sendJson(res, 200, { docs: await listTaxDocs() });
+        return sendJson(res, 200, { docs: await listTaxDocs(url.searchParams) });
       }
 
       if (url.pathname === "/api/tax-docs" && req.method === "POST") {
-        const uploaded = await parsePdfUpload(req);
-        const doc = await createTaxDoc(uploaded);
-        return sendJson(res, 201, doc);
+        return sendJson(res, 201, await createTaxDoc(await parsePdfUpload(req)));
       }
 
       const billMatch = url.pathname.match(/^\/api\/bills\/([a-f0-9-]+)$/i);
       if (billMatch) {
         const billId = billMatch[1];
         if (req.method === "PATCH") {
-          const body = await readJsonBody(req);
-          const bill = await updateBill(billId, body || {});
+          const bill = await updateBill(billId, await readJsonBody(req));
           if (!bill) return sendJson(res, 404, { error: "Bill not found" });
           return sendJson(res, 200, bill);
         }
@@ -133,15 +130,11 @@ async function start() {
       if (taxDocMatch) {
         const docId = taxDocMatch[1];
         const mode = taxDocMatch[2] || "meta";
-
         if (req.method === "DELETE" && mode === "meta") {
           await client.query("UPDATE tax_docs SET deleted_at = NOW() WHERE id = $1", [docId]);
           return sendJson(res, 204, null);
         }
-
-        if (req.method === "GET" && (mode === "download" || mode === "view")) {
-          return streamTaxDoc(res, docId, mode);
-        }
+        if (req.method === "GET" && (mode === "download" || mode === "view")) return streamTaxDoc(res, docId, mode);
       }
 
       return serveStatic(res, url.pathname);
@@ -151,8 +144,8 @@ async function start() {
     }
   });
 
-  server.listen(port, "0.0.0.0", () => {
-    console.log(`Listening on ${port}`);
+  server.listen(port, "0.0.0.0", function () {
+    console.log("Listening on " + port);
   });
 }
 
@@ -173,11 +166,13 @@ async function ensureSchema() {
   await client.query("ALTER TABLE bills ADD COLUMN IF NOT EXISTS month_key TEXT");
   await client.query("UPDATE bills SET month_key = $1 WHERE month_key IS NULL", [currentMonthKey]);
   await client.query("CREATE INDEX IF NOT EXISTS bills_month_key_sort_idx ON bills (month_key, sort_order)");
-
   await client.query(`
     CREATE TABLE IF NOT EXISTS tax_docs (
       id TEXT PRIMARY KEY,
       original_name TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT 'Other',
+      tax_year INTEGER,
+      notes TEXT NOT NULL DEFAULT '',
       content_type TEXT NOT NULL,
       byte_size INTEGER NOT NULL,
       uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -185,21 +180,20 @@ async function ensureSchema() {
       file_data BYTEA NOT NULL
     )
   `);
+  await client.query("ALTER TABLE tax_docs ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'Other'");
+  await client.query("ALTER TABLE tax_docs ADD COLUMN IF NOT EXISTS tax_year INTEGER");
+  await client.query("ALTER TABLE tax_docs ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT ''");
 }
 
 async function ensureSeedData() {
-  const months = listAvailableMonths();
-  for (let index = 0; index < months.length; index += 1) {
-    const monthKey = months[index].value;
-    const { rows } = await client.query("SELECT COUNT(*)::int AS count FROM bills WHERE deleted_at IS NULL AND month_key = $1", [monthKey]);
-    if (rows[0].count > 0) continue;
-
-    for (let billIndex = 0; billIndex < seedBills.length; billIndex += 1) {
-      const seed = seedBills[billIndex];
-      await client.query(
-        "INSERT INTO bills (id, month_key, name, amount, paid, sort_order) VALUES ($1, $2, $3, $4, $5, $6)",
-        [crypto.randomUUID(), monthKey, seed[0], seed[1], seed[2], billIndex]
-      );
+  var months = listAvailableMonths();
+  for (var index = 0; index < months.length; index += 1) {
+    var monthKey = months[index].value;
+    var countResult = await client.query("SELECT COUNT(*)::int AS count FROM bills WHERE deleted_at IS NULL AND month_key = $1", [monthKey]);
+    if (countResult.rows[0].count > 0) continue;
+    for (var billIndex = 0; billIndex < seedBills.length; billIndex += 1) {
+      var seed = seedBills[billIndex];
+      await client.query("INSERT INTO bills (id, month_key, name, amount, paid, sort_order) VALUES ($1, $2, $3, $4, $5, $6)", [crypto.randomUUID(), monthKey, seed[0], seed[1], seed[2], billIndex]);
     }
   }
 }
@@ -212,226 +206,120 @@ function listAvailableMonths() {
   ];
 }
 
+function listTaxYears() { return [2026, 2025, 2024, 2023, 2022, 2021, 2020]; }
 function getMonthKey(candidate) {
-  const months = listAvailableMonths();
-  for (let i = 0; i < months.length; i += 1) {
-    if (months[i].value === candidate) return candidate;
-  }
+  var months = listAvailableMonths();
+  for (var i = 0; i < months.length; i += 1) if (months[i].value === candidate) return candidate;
   return currentMonthKey;
 }
-
 async function listBills(monthKey) {
-  const { rows } = await client.query(
-    "SELECT id, month_key, name, amount::float8 AS amount, paid, sort_order FROM bills WHERE deleted_at IS NULL AND month_key = $1 ORDER BY sort_order ASC, created_at ASC",
-    [monthKey]
-  );
-  return rows;
+  var result = await client.query("SELECT id, month_key, name, amount::float8 AS amount, paid, sort_order FROM bills WHERE deleted_at IS NULL AND month_key = $1 ORDER BY sort_order ASC, created_at ASC", [monthKey]);
+  return result.rows;
 }
-
 async function createBill(monthKey, input) {
-  const { rows } = await client.query("SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM bills WHERE deleted_at IS NULL AND month_key = $1", [monthKey]);
-  const bill = normalizeBillInput(input);
-  const created = await client.query(
-    `INSERT INTO bills (id, month_key, name, amount, paid, sort_order)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     RETURNING id, month_key, name, amount::float8 AS amount, paid, sort_order`,
-    [crypto.randomUUID(), monthKey, bill.name, bill.amount, bill.paid, rows[0].next_order]
-  );
+  var rows = await client.query("SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM bills WHERE deleted_at IS NULL AND month_key = $1", [monthKey]);
+  var bill = normalizeBillInput(input || {});
+  var created = await client.query(`INSERT INTO bills (id, month_key, name, amount, paid, sort_order) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, month_key, name, amount::float8 AS amount, paid, sort_order`, [crypto.randomUUID(), monthKey, bill.name, bill.amount, bill.paid, rows.rows[0].next_order]);
   return created.rows[0];
 }
-
 async function updateBill(id, input) {
-  const bill = normalizeBillInput(input);
-  const result = await client.query(
-    `UPDATE bills
-     SET name = $2, amount = $3, paid = $4, updated_at = NOW()
-     WHERE id = $1 AND deleted_at IS NULL
-     RETURNING id, month_key, name, amount::float8 AS amount, paid, sort_order`,
-    [id, bill.name, bill.amount, bill.paid]
-  );
+  var bill = normalizeBillInput(input || {});
+  var result = await client.query(`UPDATE bills SET name = $2, amount = $3, paid = $4, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL RETURNING id, month_key, name, amount::float8 AS amount, paid, sort_order`, [id, bill.name, bill.amount, bill.paid]);
   return result.rows[0] || null;
 }
-
-async function listTaxDocs() {
-  const { rows } = await client.query(
-    "SELECT id, original_name, content_type, byte_size, uploaded_at FROM tax_docs WHERE deleted_at IS NULL ORDER BY uploaded_at DESC"
-  );
-  return rows;
+async function listTaxDocs(searchParams) {
+  var values = [];
+  var where = ["deleted_at IS NULL"];
+  var category = searchParams.get("category");
+  if (category && category !== "all") { values.push(category); where.push("category = $" + values.length); }
+  var taxYear = searchParams.get("taxYear");
+  if (taxYear && /^\d{4}$/.test(taxYear)) { values.push(Number(taxYear)); where.push("tax_year = $" + values.length); }
+  var search = searchParams.get("search");
+  if (search) { values.push("%" + search.toLowerCase() + "%"); where.push("(LOWER(original_name) LIKE $" + values.length + " OR LOWER(notes) LIKE $" + values.length + ")"); }
+  var query = "SELECT id, original_name, category, tax_year, notes, content_type, byte_size, uploaded_at FROM tax_docs WHERE " + where.join(" AND ") + " ORDER BY tax_year DESC NULLS LAST, uploaded_at DESC";
+  var result = await client.query(query, values);
+  return result.rows;
 }
-
 async function createTaxDoc(uploaded) {
-  const result = await client.query(
-    `INSERT INTO tax_docs (id, original_name, content_type, byte_size, file_data)
-     VALUES ($1, $2, $3, $4, $5)
-     RETURNING id, original_name, content_type, byte_size, uploaded_at`,
-    [crypto.randomUUID(), uploaded.filename, uploaded.contentType, uploaded.buffer.length, uploaded.buffer]
-  );
+  var result = await client.query(`INSERT INTO tax_docs (id, original_name, category, tax_year, notes, content_type, byte_size, file_data) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, original_name, category, tax_year, notes, content_type, byte_size, uploaded_at`, [crypto.randomUUID(), uploaded.filename, uploaded.category, uploaded.taxYear, uploaded.notes, uploaded.contentType, uploaded.buffer.length, uploaded.buffer]);
   return result.rows[0];
 }
-
 async function streamTaxDoc(res, docId, mode) {
-  const result = await client.query(
-    "SELECT original_name, content_type, file_data FROM tax_docs WHERE id = $1 AND deleted_at IS NULL",
-    [docId]
-  );
-  const row = result.rows[0];
+  var result = await client.query("SELECT original_name, content_type, file_data FROM tax_docs WHERE id = $1 AND deleted_at IS NULL", [docId]);
+  var row = result.rows[0];
   if (!row) return sendJson(res, 404, { error: "Document not found" });
-
-  const dispositionType = mode === "download" ? "attachment" : "inline";
-  res.writeHead(200, {
-    "Content-Type": row.content_type,
-    "Content-Length": row.file_data.length,
-    "Content-Disposition": dispositionType + '; filename="' + sanitizeFilename(row.original_name) + '"',
-    "Cache-Control": "no-cache",
-  });
+  var dispositionType = mode === "download" ? "attachment" : "inline";
+  res.writeHead(200, { "Content-Type": row.content_type, "Content-Length": row.file_data.length, "Content-Disposition": dispositionType + '; filename="' + sanitizeFilename(row.original_name) + '"', "Cache-Control": "no-cache" });
   res.end(row.file_data);
 }
-
 function parsePdfUpload(req) {
-  return new Promise((resolve, reject) => {
+  return new Promise(function (resolve, reject) {
     if (!req.headers["content-type"] || req.headers["content-type"].indexOf("multipart/form-data") !== 0) {
-      const error = new Error("Upload must use multipart/form-data");
-      error.statusCode = 400;
-      reject(error);
-      return;
+      var contentError = new Error("Upload must use multipart/form-data"); contentError.statusCode = 400; reject(contentError); return;
     }
-
-    const busboy = Busboy({ headers: req.headers, limits: { files: 1, fileSize: maxPdfBytes } });
-    let uploadedFile = null;
-    let finished = false;
-
+    var busboy = Busboy({ headers: req.headers, limits: { files: 1, fileSize: maxPdfBytes } });
+    var uploadedFile = null;
+    var fields = { category: "Other", taxYear: null, notes: "" };
+    var finished = false;
+    busboy.on("field", function (name, value) {
+      if (name === "category") fields.category = normalizeCategory(value);
+      if (name === "taxYear") fields.taxYear = normalizeTaxYear(value);
+      if (name === "notes") fields.notes = String(value || "").slice(0, 2000);
+    });
     busboy.on("file", function (fieldName, file, info) {
-      const chunks = [];
-      const filename = info && info.filename ? info.filename : "document.pdf";
-      const mimeType = info && info.mimeType ? info.mimeType : "application/pdf";
-
-      if (mimeType !== "application/pdf" && !/\.pdf$/i.test(filename)) {
-        file.resume();
-        const error = new Error("Only PDF files are supported");
-        error.statusCode = 400;
-        rejectOnce(error);
-        return;
-      }
-
-      file.on("data", function (chunk) {
-        chunks.push(chunk);
-      });
-
-      file.on("limit", function () {
-        const error = new Error("PDF exceeds the 15MB upload limit");
-        error.statusCode = 400;
-        rejectOnce(error);
-      });
-
+      var chunks = [];
+      var filename = info && info.filename ? info.filename : "document.pdf";
+      var mimeType = info && info.mimeType ? info.mimeType : "application/pdf";
+      if (mimeType !== "application/pdf" && !/\.pdf$/i.test(filename)) { file.resume(); var typeError = new Error("Only PDF files are supported"); typeError.statusCode = 400; rejectOnce(typeError); return; }
+      file.on("data", function (chunk) { chunks.push(chunk); });
+      file.on("limit", function () { var sizeError = new Error("PDF exceeds the 15MB upload limit"); sizeError.statusCode = 400; rejectOnce(sizeError); });
       file.on("end", function () {
         if (finished) return;
-        uploadedFile = {
-          filename: filename,
-          contentType: "application/pdf",
-          buffer: Buffer.concat(chunks),
-        };
+        uploadedFile = { filename: filename, contentType: "application/pdf", buffer: Buffer.concat(chunks), category: fields.category, taxYear: fields.taxYear, notes: fields.notes };
       });
     });
-
     busboy.on("finish", function () {
       if (finished) return;
-      if (!uploadedFile || !uploadedFile.buffer.length) {
-        const error = new Error("No PDF file was uploaded");
-        error.statusCode = 400;
-        rejectOnce(error);
-        return;
-      }
+      if (!uploadedFile || !uploadedFile.buffer.length) { var missingError = new Error("No PDF file was uploaded"); missingError.statusCode = 400; rejectOnce(missingError); return; }
       finished = true;
       resolve(uploadedFile);
     });
-
-    busboy.on("error", function (error) {
-      rejectOnce(error);
-    });
-
-    function rejectOnce(error) {
-      if (finished) return;
-      finished = true;
-      reject(error);
-    }
-
+    busboy.on("error", function (error) { rejectOnce(error); });
+    function rejectOnce(error) { if (finished) return; finished = true; reject(error); }
     req.pipe(busboy);
   });
 }
-
-function normalizeBillInput(input) {
-  return {
-    name: typeof input.name === "string" ? input.name.slice(0, 200) : "",
-    amount: Number.isFinite(Number(input.amount)) ? Number(input.amount) : 0,
-    paid: input.paid === "YES" ? "YES" : "NO",
-  };
-}
-
-function sanitizeFilename(name) {
-  return String(name || "document.pdf").replace(/[^a-zA-Z0-9._-]+/g, "-");
-}
-
+function normalizeBillInput(input) { return { name: typeof input.name === "string" ? input.name.slice(0, 200) : "", amount: Number.isFinite(Number(input.amount)) ? Number(input.amount) : 0, paid: input.paid === "YES" ? "YES" : "NO" }; }
+function normalizeCategory(value) { for (var i = 0; i < taxCategories.length; i += 1) if (taxCategories[i] === value) return value; return "Other"; }
+function normalizeTaxYear(value) { if (!value) return null; var parsed = Number(value); return Number.isInteger(parsed) && parsed >= 2000 && parsed <= 2100 ? parsed : null; }
+function sanitizeFilename(name) { return String(name || "document.pdf").replace(/[^a-zA-Z0-9._-]+/g, "-"); }
 function readJsonBody(req) {
-  return new Promise((resolve, reject) => {
-    let body = "";
-    req.on("data", (chunk) => {
-      body += chunk;
-      if (body.length > 1000000) {
-        req.destroy();
-        reject(new Error("Request too large"));
-      }
-    });
-    req.on("end", () => {
-      if (!body) return resolve({});
-      try {
-        resolve(JSON.parse(body));
-      } catch (error) {
-        reject(error);
-      }
-    });
+  return new Promise(function (resolve, reject) {
+    var body = "";
+    req.on("data", function (chunk) { body += chunk; if (body.length > 1000000) { req.destroy(); reject(new Error("Request too large")); } });
+    req.on("end", function () { if (!body) return resolve({}); try { resolve(JSON.parse(body)); } catch (error) { reject(error); } });
     req.on("error", reject);
   });
 }
-
 function serveStatic(res, pathname) {
-  const requestPath = pathname === "/" ? "/index.html" : pathname;
-  const safePath = path.normalize(requestPath).replace(/^([.][.][/\\])+/, "");
-  const filePath = path.join(root, safePath);
-
-  fs.readFile(filePath, (error, data) => {
+  var requestPath = pathname === "/" ? "/index.html" : pathname;
+  var safePath = path.normalize(requestPath).replace(/^([.][.][/\\])+/, "");
+  var filePath = path.join(root, safePath);
+  fs.readFile(filePath, function (error, data) {
     if (error) {
       if (error.code === "ENOENT") {
-        fs.readFile(path.join(root, "index.html"), (fallbackError, fallbackData) => {
-          if (fallbackError) {
-            res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
-            res.end("Server error");
-            return;
-          }
+        fs.readFile(path.join(root, "index.html"), function (fallbackError, fallbackData) {
+          if (fallbackError) { res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" }); res.end("Server error"); return; }
           res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
           res.end(fallbackData);
         });
         return;
       }
-      res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
-      res.end("Server error");
-      return;
+      res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" }); res.end("Server error"); return;
     }
-
-    const extension = path.extname(filePath).toLowerCase();
-    res.writeHead(200, {
-      "Content-Type": contentTypes[extension] || "application/octet-stream",
-      "Cache-Control": extension === ".html" ? "no-cache" : "public, max-age=3600",
-    });
+    var extension = path.extname(filePath).toLowerCase();
+    res.writeHead(200, { "Content-Type": contentTypes[extension] || "application/octet-stream", "Cache-Control": extension === ".html" ? "no-cache" : "public, max-age=3600" });
     res.end(data);
   });
 }
-
-function sendJson(res, statusCode, payload) {
-  if (statusCode === 204) {
-    res.writeHead(204);
-    res.end();
-    return;
-  }
-  res.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
-  res.end(JSON.stringify(payload));
-}
+function sendJson(res, statusCode, payload) { if (statusCode === 204) { res.writeHead(204); res.end(); return; } res.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" }); res.end(JSON.stringify(payload)); }

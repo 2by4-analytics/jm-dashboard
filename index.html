@@ -13,7 +13,7 @@
           <p class="eyebrow">JM Dashboard</p>
           <h1 class="app-title">Operations Home</h1>
         </div>
-        <button id="home-button" class="ghost-button" type="button">Dashboard</button>
+        <a id="home-button" class="ghost-button" href="#dashboard">Dashboard</a>
       </header>
 
       <section id="dashboard-view" class="view-section">
@@ -24,17 +24,17 @@
         </div>
 
         <div class="module-grid">
-          <button id="expenses-module" class="module-card module-card-primary" type="button">
+          <a id="expenses-module" class="module-card module-card-primary" href="#expenses">
             <span class="module-status">Live</span>
             <strong class="module-title">Expenses</strong>
             <span class="module-copy">January 2026 through March 2026 with month-based bill tracking.</span>
-          </button>
+          </a>
 
-          <button id="tax-docs-module" class="module-card module-card-secondary" type="button">
+          <a id="tax-docs-module" class="module-card module-card-secondary" href="#tax-docs">
             <span class="module-status">Live</span>
             <strong class="module-title">View Tax Docs</strong>
             <span class="module-copy">Upload, open, download, and manage PDF tax documents.</span>
-          </button>
+          </a>
         </div>
       </section>
 
@@ -53,7 +53,7 @@
             <span class="field-label">Month</span>
             <select id="month-selector" class="month-selector"></select>
           </label>
-          <button id="back-button" class="button button-secondary" type="button">Back</button>
+          <a id="back-button" class="button button-secondary button-link" href="#dashboard">Back</a>
         </div>
 
         <div class="summary-grid">
@@ -114,8 +114,20 @@
               <span class="field-label">Choose file</span>
               <input id="tax-pdf-input" type="file" accept="application/pdf,.pdf" />
             </label>
+            <label class="field-stack" for="tax-category-input">
+              <span class="field-label">Category</span>
+              <select id="tax-category-input" class="month-selector"></select>
+            </label>
+            <label class="field-stack" for="tax-year-input">
+              <span class="field-label">Tax year</span>
+              <select id="tax-year-input" class="month-selector"></select>
+            </label>
+            <label class="field-stack upload-notes-wrap" for="tax-notes-input">
+              <span class="field-label">Notes</span>
+              <textarea id="tax-notes-input" class="notes-input" rows="3" placeholder="Optional notes about this filing or document"></textarea>
+            </label>
             <button id="tax-upload-button" class="button button-primary" type="submit">Upload PDF</button>
-            <button id="tax-back-button" class="button button-secondary" type="button">Back</button>
+            <a id="tax-back-button" class="button button-secondary button-link" href="#dashboard">Back</a>
           </form>
         </section>
 
@@ -126,6 +138,22 @@
               <h3 class="panel-title">Tax document library</h3>
             </div>
           </div>
+
+          <div class="tax-filters">
+            <label class="field-stack">
+              <span class="field-label">Search</span>
+              <input id="tax-search-input" class="text-input" type="search" placeholder="Search filename or notes" />
+            </label>
+            <label class="field-stack">
+              <span class="field-label">Category</span>
+              <select id="tax-filter-category" class="month-selector"></select>
+            </label>
+            <label class="field-stack">
+              <span class="field-label">Year</span>
+              <select id="tax-filter-year" class="month-selector"></select>
+            </label>
+          </div>
+
           <div id="tax-docs-list" class="tax-docs-list"></div>
         </section>
       </section>

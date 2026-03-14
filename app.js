@@ -4,6 +4,9 @@ var state = {
   months: [],
   bills: [],
   taxDocs: [],
+  taxCategories: [],
+  taxYears: [],
+  taxFilters: { search: "", category: "all", year: "all" },
   tithesRate: 0.1,
   saveTimers: {}
 };
@@ -30,7 +33,13 @@ var elements = {
   billsList: document.getElementById("bills-list"),
   taxDocsList: document.getElementById("tax-docs-list"),
   taxUploadForm: document.getElementById("tax-upload-form"),
-  taxPdfInput: document.getElementById("tax-pdf-input")
+  taxPdfInput: document.getElementById("tax-pdf-input"),
+  taxCategoryInput: document.getElementById("tax-category-input"),
+  taxYearInput: document.getElementById("tax-year-input"),
+  taxNotesInput: document.getElementById("tax-notes-input"),
+  taxSearchInput: document.getElementById("tax-search-input"),
+  taxFilterCategory: document.getElementById("tax-filter-category"),
+  taxFilterYear: document.getElementById("tax-filter-year")
 };
 
 boot();
@@ -38,24 +47,22 @@ boot();
 function boot() {
   bindActions();
   loadBootstrap();
+  window.onhashchange = syncViewFromHash;
 }
 
 function bindActions() {
-  elements.homeButton.onclick = showDashboard;
-  elements.expensesModule.onclick = showExpenses;
-  elements.taxDocsModule.onclick = showTaxDocs;
-  elements.backButton.onclick = showDashboard;
-  elements.taxBackButton.onclick = showDashboard;
-  elements.monthSelector.onchange = function (event) {
-    state.selectedMonth = event.target.value;
-    loadMonth();
-  };
+  elements.expensesModule.onclick = function () { showExpenses(); };
+  elements.taxDocsModule.onclick = function () { showTaxDocs(); };
+  elements.homeButton.onclick = function () { showDashboard(); };
+  elements.backButton.onclick = function () { showDashboard(); };
+  elements.taxBackButton.onclick = function () { showDashboard(); };
+  elements.monthSelector.onchange = function (event) { state.selectedMonth = event.target.value; loadMonth(); };
   elements.addBillButton.onclick = addBill;
   elements.resetButton.onclick = resetBills;
-  elements.taxUploadForm.onsubmit = function (event) {
-    event.preventDefault();
-    uploadTaxDoc();
-  };
+  elements.taxUploadForm.onsubmit = function (event) { event.preventDefault(); uploadTaxDoc(); };
+  elements.taxSearchInput.oninput = function (event) { state.taxFilters.search = event.target.value; loadTaxDocs(); };
+  elements.taxFilterCategory.onchange = function (event) { state.taxFilters.category = event.target.value; loadTaxDocs(); };
+  elements.taxFilterYear.onchange = function (event) { state.taxFilters.year = event.target.value; loadTaxDocs(); };
 }
 
 function loadBootstrap() {
@@ -64,8 +71,11 @@ function loadBootstrap() {
     state.months = payload.months || [];
     state.selectedMonth = payload.selectedMonth || "2026-03";
     state.tithesRate = payload.tithesRate || 0.1;
+    state.taxCategories = payload.taxCategories || [];
+    state.taxYears = payload.taxYears || [];
     renderMonthOptions();
-    showDashboard();
+    renderTaxMetaOptions();
+    syncViewFromHash();
   });
 }
 
@@ -80,26 +90,63 @@ function renderMonthOptions() {
   }
 }
 
-function showDashboard() {
+function renderTaxMetaOptions() {
+  renderOptions(elements.taxCategoryInput, state.taxCategories, null, null);
+  renderOptions(elements.taxYearInput, state.taxYears, null, null);
+  renderOptions(elements.taxFilterCategory, state.taxCategories, "all", "All categories");
+  renderOptions(elements.taxFilterYear, state.taxYears, "all", "All years");
+}
+
+function renderOptions(target, items, allValue, allLabel) {
+  target.innerHTML = "";
+  if (allValue) {
+    var allOption = document.createElement("option");
+    allOption.value = allValue;
+    allOption.textContent = allLabel;
+    target.appendChild(allOption);
+  }
+  for (var i = 0; i < items.length; i += 1) {
+    var option = document.createElement("option");
+    option.value = String(items[i]);
+    option.textContent = String(items[i]);
+    target.appendChild(option);
+  }
+}
+
+function syncViewFromHash() {
+  var hash = window.location.hash || "#dashboard";
+  if (hash === "#expenses") return showExpenses(true);
+  if (hash === "#tax-docs") return showTaxDocs(true);
+  return showDashboard(true);
+}
+
+function setHash(hash) {
+  if (window.location.hash !== hash) window.location.hash = hash;
+}
+
+function showDashboard(skipHash) {
   state.currentView = "dashboard";
   elements.dashboardView.className = "view-section";
   elements.expensesView.className = "view-section is-hidden";
   elements.taxDocsView.className = "view-section is-hidden";
+  if (!skipHash) setHash("#dashboard");
 }
 
-function showExpenses() {
+function showExpenses(skipHash) {
   state.currentView = "expenses";
   elements.dashboardView.className = "view-section is-hidden";
   elements.expensesView.className = "view-section";
   elements.taxDocsView.className = "view-section is-hidden";
+  if (!skipHash) setHash("#expenses");
   loadMonth();
 }
 
-function showTaxDocs() {
+function showTaxDocs(skipHash) {
   state.currentView = "tax-docs";
   elements.dashboardView.className = "view-section is-hidden";
   elements.expensesView.className = "view-section is-hidden";
   elements.taxDocsView.className = "view-section";
+  if (!skipHash) setHash("#tax-docs");
   loadTaxDocs();
 }
 
@@ -146,9 +193,9 @@ function renderBills() {
 function createBillCard(bill) {
   var card = document.createElement("article");
   card.className = "bill-card" + (bill.paid === "YES" ? " bill-paid" : "");
-
   var topRow = document.createElement("div");
   topRow.className = "bill-top-row";
+
   var nameWrap = document.createElement("label");
   nameWrap.className = "field-stack";
   var nameLabel = document.createElement("span");
@@ -278,7 +325,12 @@ function labelForMonth(monthKey) {
 
 function loadTaxDocs() {
   setTaxSyncStatus("Loading", "");
-  requestJson("GET", "/api/tax-docs", null, function (error, payload) {
+  var params = [];
+  if (state.taxFilters.search) params.push("search=" + encodeURIComponent(state.taxFilters.search));
+  if (state.taxFilters.category !== "all") params.push("category=" + encodeURIComponent(state.taxFilters.category));
+  if (state.taxFilters.year !== "all") params.push("taxYear=" + encodeURIComponent(state.taxFilters.year));
+  var url = "/api/tax-docs" + (params.length ? "?" + params.join("&") : "");
+  requestJson("GET", url, null, function (error, payload) {
     if (error) return setTaxSyncStatus("Offline", "sync-error");
     state.taxDocs = payload.docs || [];
     renderTaxDocs();
@@ -288,27 +340,15 @@ function loadTaxDocs() {
 
 function uploadTaxDoc() {
   var file = elements.taxPdfInput.files && elements.taxPdfInput.files[0];
-  if (!file) {
-    setTaxSyncStatus("Choose a PDF", "sync-error");
-    return;
-  }
-
-  if (!/pdf$/i.test(file.name) && file.type !== "application/pdf") {
-    setTaxSyncStatus("PDF only", "sync-error");
-    return;
-  }
+  if (!file) return setTaxSyncStatus("Choose a PDF", "sync-error");
+  if (!/pdf$/i.test(file.name) && file.type !== "application/pdf") return setTaxSyncStatus("PDF only", "sync-error");
 
   setTaxSyncStatus("Uploading", "");
-  uploadFormData("/api/tax-docs", file, function (error, doc) {
-    if (error) {
-      setTaxSyncStatus(error.message || "Upload failed", "sync-error");
-      return;
-    }
-
+  uploadFormData(file, function (error) {
+    if (error) return setTaxSyncStatus(error.message || "Upload failed", "sync-error");
     elements.taxPdfInput.value = "";
-    state.taxDocs.unshift(doc);
-    renderTaxDocs();
-    setTaxSyncStatus("Saved", "sync-ok");
+    elements.taxNotesInput.value = "";
+    loadTaxDocs();
   });
 }
 
@@ -317,29 +357,36 @@ function renderTaxDocs() {
   if (!state.taxDocs.length) {
     var empty = document.createElement("div");
     empty.className = "empty-card";
-    empty.textContent = "No tax PDFs uploaded yet.";
+    empty.textContent = "No matching tax PDFs yet.";
     elements.taxDocsList.appendChild(empty);
     return;
   }
-
-  for (var i = 0; i < state.taxDocs.length; i += 1) {
-    elements.taxDocsList.appendChild(createTaxDocCard(state.taxDocs[i]));
-  }
+  for (var i = 0; i < state.taxDocs.length; i += 1) elements.taxDocsList.appendChild(createTaxDocCard(state.taxDocs[i]));
 }
 
 function createTaxDocCard(doc) {
   var card = document.createElement("article");
   card.className = "tax-doc-card";
-
   var meta = document.createElement("div");
   meta.className = "tax-doc-meta";
   var title = document.createElement("strong");
   title.className = "tax-doc-title";
   title.textContent = doc.original_name;
+  var chips = document.createElement("div");
+  chips.className = "doc-chip-row";
+  chips.appendChild(createDocChip(doc.category));
+  if (doc.tax_year) chips.appendChild(createDocChip(String(doc.tax_year)));
   var details = document.createElement("span");
   details.className = "tax-doc-details";
   details.textContent = formatBytes(doc.byte_size) + " • " + formatDateTime(doc.uploaded_at);
   meta.appendChild(title);
+  meta.appendChild(chips);
+  if (doc.notes) {
+    var notes = document.createElement("p");
+    notes.className = "doc-notes";
+    notes.textContent = doc.notes;
+    meta.appendChild(notes);
+  }
   meta.appendChild(details);
 
   var actions = document.createElement("div");
@@ -355,11 +402,7 @@ function createTaxDocCard(doc) {
     setTaxSyncStatus("Saving", "");
     requestJson("DELETE", "/api/tax-docs/" + doc.id, null, function (error) {
       if (error) return setTaxSyncStatus("Delete failed", "sync-error");
-      var nextDocs = [];
-      for (var i = 0; i < state.taxDocs.length; i += 1) if (state.taxDocs[i].id !== doc.id) nextDocs.push(state.taxDocs[i]);
-      state.taxDocs = nextDocs;
-      renderTaxDocs();
-      setTaxSyncStatus("Saved", "sync-ok");
+      loadTaxDocs();
     });
   };
   actions.appendChild(deleteButton);
@@ -367,6 +410,13 @@ function createTaxDocCard(doc) {
   card.appendChild(meta);
   card.appendChild(actions);
   return card;
+}
+
+function createDocChip(label) {
+  var chip = document.createElement("span");
+  chip.className = "doc-chip";
+  chip.textContent = label;
+  return chip;
 }
 
 function createLinkButton(label, href) {
@@ -399,11 +449,7 @@ function formatBytes(value) {
 }
 
 function formatDateTime(value) {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric"
-  }).format(new Date(value));
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
 }
 
 function requestJson(method, url, body, callback) {
@@ -429,11 +475,14 @@ function requestJson(method, url, body, callback) {
   request.send(body ? JSON.stringify(body) : null);
 }
 
-function uploadFormData(url, file, callback) {
+function uploadFormData(file, callback) {
   var formData = new FormData();
   formData.append("file", file);
+  formData.append("category", elements.taxCategoryInput.value || "Other");
+  formData.append("taxYear", elements.taxYearInput.value || "");
+  formData.append("notes", elements.taxNotesInput.value || "");
   var request = new XMLHttpRequest();
-  request.open("POST", url, true);
+  request.open("POST", "/api/tax-docs", true);
   request.onreadystatechange = function () {
     if (request.readyState !== 4) return;
     if (request.status >= 200 && request.status < 300) {
