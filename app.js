@@ -1,4 +1,6 @@
 var state = {
+  authenticated: false,
+  currentUser: null,
   currentView: "dashboard",
   selectedMonth: "2026-03",
   months: [],
@@ -12,6 +14,15 @@ var state = {
 };
 
 var elements = {
+  loginView: document.getElementById("login-view"),
+  appView: document.getElementById("app-view"),
+  loginForm: document.getElementById("login-form"),
+  loginPhone: document.getElementById("login-phone"),
+  loginPassword: document.getElementById("login-password"),
+  loginStatus: document.getElementById("login-status"),
+  logoutButton: document.getElementById("logout-button"),
+  userName: document.getElementById("user-name"),
+  userRole: document.getElementById("user-role"),
   homeButton: document.getElementById("home-button"),
   dashboardView: document.getElementById("dashboard-view"),
   expensesView: document.getElementById("expenses-view"),
@@ -46,11 +57,16 @@ boot();
 
 function boot() {
   bindActions();
-  loadBootstrap();
   window.onhashchange = syncViewFromHash;
+  checkSession();
 }
 
 function bindActions() {
+  elements.loginForm.onsubmit = function (event) {
+    event.preventDefault();
+    login();
+  };
+  elements.logoutButton.onclick = logout;
   elements.expensesModule.onclick = function () { showExpenses(); };
   elements.taxDocsModule.onclick = function () { showTaxDocs(); };
   elements.homeButton.onclick = function () { showDashboard(); };
@@ -65,9 +81,62 @@ function bindActions() {
   elements.taxFilterYear.onchange = function (event) { state.taxFilters.year = event.target.value; loadTaxDocs(); };
 }
 
+function checkSession() {
+  setLoginStatus("Checking session", "");
+  requestJson("GET", "/api/auth/session", null, function (error, payload) {
+    if (error) {
+      if (error.statusCode === 401) return enterLoggedOutState();
+      return setLoginStatus("Unable to connect", "sync-error");
+    }
+    enterLoggedInState(payload);
+    loadBootstrap();
+  });
+}
+
+function login() {
+  var phone = elements.loginPhone.value || "";
+  var password = elements.loginPassword.value || "";
+  if (!normalizePhone(phone)) return setLoginStatus("Enter a valid phone number", "sync-error");
+  if (!password) return setLoginStatus("Enter your password", "sync-error");
+
+  setLoginStatus("Signing in", "");
+  requestJson("POST", "/api/auth/login", { phone: phone, password: password }, function (error, payload) {
+    if (error) {
+      return setLoginStatus(error.message || "Sign in failed", "sync-error");
+    }
+    elements.loginPassword.value = "";
+    enterLoggedInState(payload);
+    loadBootstrap();
+  });
+}
+
+function logout() {
+  requestJson("POST", "/api/auth/logout", {}, function () {
+    enterLoggedOutState();
+  });
+}
+
+function enterLoggedOutState() {
+  state.authenticated = false;
+  state.currentUser = null;
+  elements.loginView.className = "auth-shell";
+  elements.appView.className = "app-view is-hidden";
+  setLoginStatus("Sign in with your phone number", "");
+}
+
+function enterLoggedInState(payload) {
+  state.authenticated = true;
+  state.currentUser = payload && payload.user ? payload.user : null;
+  elements.loginView.className = "auth-shell is-hidden";
+  elements.appView.className = "app-view";
+  elements.userName.textContent = state.currentUser ? state.currentUser.name : "Account";
+  elements.userRole.textContent = state.currentUser ? prettyRole(state.currentUser.role) : "User";
+  setLoginStatus("Signed in", "sync-ok");
+}
+
 function loadBootstrap() {
   requestJson("GET", "/api/bootstrap", null, function (error, payload) {
-    if (error) return setSyncStatus("Offline", "sync-error");
+    if (error) return handleApiError(error, setSyncStatus, "Offline");
     state.months = payload.months || [];
     state.selectedMonth = payload.selectedMonth || "2026-03";
     state.tithesRate = payload.tithesRate || 0.1;
@@ -114,10 +183,16 @@ function renderOptions(target, items, allValue, allLabel) {
 }
 
 function syncViewFromHash() {
+  if (!state.authenticated) return showLogin();
   var hash = window.location.hash || "#dashboard";
   if (hash === "#expenses") return showExpenses(true);
   if (hash === "#tax-docs") return showTaxDocs(true);
   return showDashboard(true);
+}
+
+function showLogin() {
+  elements.loginView.className = "auth-shell";
+  elements.appView.className = "app-view is-hidden";
 }
 
 function setHash(hash) {
@@ -153,7 +228,7 @@ function showTaxDocs(skipHash) {
 function loadMonth() {
   setSyncStatus("Loading", "");
   requestJson("GET", "/api/state?month=" + encodeURIComponent(state.selectedMonth), null, function (error, payload) {
-    if (error) return setSyncStatus("Offline", "sync-error");
+    if (error) return handleApiError(error, setSyncStatus, "Offline");
     state.bills = payload.bills || [];
     state.tithesRate = payload.tithesRate || 0.1;
     renderMonthOptions();
@@ -166,7 +241,7 @@ function loadMonth() {
 function addBill() {
   setSyncStatus("Saving", "");
   requestJson("POST", "/api/bills?month=" + encodeURIComponent(state.selectedMonth), { name: "", amount: 0, paid: "NO" }, function (error, bill) {
-    if (error) return setSyncStatus("Save failed", "sync-error");
+    if (error) return handleApiError(error, setSyncStatus, "Save failed");
     state.bills.push(bill);
     renderBills();
     renderSummary();
@@ -177,7 +252,7 @@ function addBill() {
 function resetBills() {
   setSyncStatus("Saving", "");
   requestJson("POST", "/api/reset?month=" + encodeURIComponent(state.selectedMonth), {}, function (error) {
-    if (error) return setSyncStatus("Save failed", "sync-error");
+    if (error) return handleApiError(error, setSyncStatus, "Save failed");
     for (var i = 0; i < state.bills.length; i += 1) state.bills[i].paid = "NO";
     renderBills();
     renderSummary();
@@ -252,7 +327,7 @@ function createBillCard(bill) {
   deleteButton.onclick = function () {
     setSyncStatus("Saving", "");
     requestJson("DELETE", "/api/bills/" + bill.id, null, function (error) {
-      if (error) return setSyncStatus("Save failed", "sync-error");
+      if (error) return handleApiError(error, setSyncStatus, "Save failed");
       var nextBills = [];
       for (var i = 0; i < state.bills.length; i += 1) if (state.bills[i].id !== bill.id) nextBills.push(state.bills[i]);
       state.bills = nextBills;
@@ -295,7 +370,7 @@ function queueSave(bill) {
 
 function saveBillNow(bill) {
   requestJson("PATCH", "/api/bills/" + bill.id, { name: bill.name, amount: bill.amount, paid: bill.paid }, function (error, savedBill) {
-    if (error) return setSyncStatus("Save failed", "sync-error");
+    if (error) return handleApiError(error, setSyncStatus, "Save failed");
     for (var i = 0; i < state.bills.length; i += 1) if (state.bills[i].id === savedBill.id) state.bills[i] = savedBill;
     renderBills();
     renderSummary();
@@ -331,7 +406,7 @@ function loadTaxDocs() {
   if (state.taxFilters.year !== "all") params.push("taxYear=" + encodeURIComponent(state.taxFilters.year));
   var url = "/api/tax-docs" + (params.length ? "?" + params.join("&") : "");
   requestJson("GET", url, null, function (error, payload) {
-    if (error) return setTaxSyncStatus("Offline", "sync-error");
+    if (error) return handleApiError(error, setTaxSyncStatus, "Offline");
     state.taxDocs = payload.docs || [];
     renderTaxDocs();
     setTaxSyncStatus("Ready", "sync-ok");
@@ -345,7 +420,7 @@ function uploadTaxDoc() {
 
   setTaxSyncStatus("Uploading", "");
   uploadFormData(file, function (error) {
-    if (error) return setTaxSyncStatus(error.message || "Upload failed", "sync-error");
+    if (error) return handleApiError(error, setTaxSyncStatus, error.message || "Upload failed");
     elements.taxPdfInput.value = "";
     elements.taxNotesInput.value = "";
     loadTaxDocs();
@@ -401,7 +476,7 @@ function createTaxDocCard(doc) {
   deleteButton.onclick = function () {
     setTaxSyncStatus("Saving", "");
     requestJson("DELETE", "/api/tax-docs/" + doc.id, null, function (error) {
-      if (error) return setTaxSyncStatus("Delete failed", "sync-error");
+      if (error) return handleApiError(error, setTaxSyncStatus, "Delete failed");
       loadTaxDocs();
     });
   };
@@ -429,6 +504,19 @@ function createLinkButton(label, href) {
   return link;
 }
 
+function handleApiError(error, statusSetter, fallbackLabel) {
+  if (error && error.statusCode === 401) {
+    enterLoggedOutState();
+    return setLoginStatus("Session expired. Sign in again.", "sync-error");
+  }
+  statusSetter(fallbackLabel, "sync-error");
+}
+
+function setLoginStatus(label, className) {
+  elements.loginStatus.textContent = label;
+  elements.loginStatus.className = className ? "auth-status sync-status " + className : "auth-status sync-status";
+}
+
 function setSyncStatus(label, className) {
   elements.syncStatus.textContent = label;
   elements.syncStatus.className = className ? "sync-status " + className : "sync-status";
@@ -452,6 +540,18 @@ function formatDateTime(value) {
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
 }
 
+function prettyRole(role) {
+  if (role === "admin") return "Admin";
+  if (role === "read_only") return "Read only";
+  return "User";
+}
+
+function normalizePhone(value) {
+  var digits = String(value || "").replace(/\D/g, "");
+  if (digits.length === 11 && digits.charAt(0) === "1") digits = digits.slice(1);
+  return digits.length === 10 ? digits : "";
+}
+
 function requestJson(method, url, body, callback) {
   var request = new XMLHttpRequest();
   request.open(method, url, true);
@@ -466,12 +566,20 @@ function requestJson(method, url, body, callback) {
     }
     try {
       var parsed = request.responseText ? JSON.parse(request.responseText) : null;
-      callback(new Error(parsed && parsed.error ? parsed.error : "Request failed with status " + request.status));
+      var apiError = new Error(parsed && parsed.error ? parsed.error : "Request failed with status " + request.status);
+      apiError.statusCode = request.status;
+      callback(apiError);
     } catch (error) {
-      callback(new Error("Request failed with status " + request.status));
+      var fallbackError = new Error("Request failed with status " + request.status);
+      fallbackError.statusCode = request.status;
+      callback(fallbackError);
     }
   };
-  request.onerror = function () { callback(new Error("Network request failed")); };
+  request.onerror = function () {
+    var networkError = new Error("Network request failed");
+    networkError.statusCode = 0;
+    callback(networkError);
+  };
   request.send(body ? JSON.stringify(body) : null);
 }
 
@@ -492,11 +600,19 @@ function uploadFormData(file, callback) {
     }
     try {
       var parsed = request.responseText ? JSON.parse(request.responseText) : null;
-      callback(new Error(parsed && parsed.error ? parsed.error : "Upload failed"));
+      var apiError = new Error(parsed && parsed.error ? parsed.error : "Upload failed");
+      apiError.statusCode = request.status;
+      callback(apiError);
     } catch (error) {
-      callback(new Error("Upload failed"));
+      var fallbackError = new Error("Upload failed");
+      fallbackError.statusCode = request.status;
+      callback(fallbackError);
     }
   };
-  request.onerror = function () { callback(new Error("Network request failed")); };
+  request.onerror = function () {
+    var networkError = new Error("Network request failed");
+    networkError.statusCode = 0;
+    callback(networkError);
+  };
   request.send(formData);
 }

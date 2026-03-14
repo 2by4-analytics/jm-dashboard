@@ -4,161 +4,194 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>JM Dashboard</title>
-    <link rel="stylesheet" href="./styles.css?v=20260313b" />
+    <link rel="stylesheet" href="./styles.css?v=20260313c" />
   </head>
   <body>
     <div class="app-shell">
-      <header class="app-header">
-        <div>
+      <section id="login-view" class="auth-shell">
+        <div class="auth-card">
           <p class="eyebrow">JM Dashboard</p>
-          <h1 class="app-title">Operations Home</h1>
-        </div>
-        <a id="home-button" class="ghost-button" href="#dashboard">Dashboard</a>
-      </header>
+          <h1 class="auth-title">Sign in</h1>
+          <p class="auth-copy">Use your phone number and password to open the dashboard.</p>
 
-      <section id="dashboard-view" class="view-section">
-        <div class="hero-card">
-          <p class="section-label">Modules</p>
-          <h2 class="hero-title">Choose a workspace</h2>
-          <p class="hero-copy">This dashboard now holds expenses and tax records, with room for the next finance tools we add.</p>
-        </div>
-
-        <div class="module-grid">
-          <a id="expenses-module" class="module-card module-card-primary" href="#expenses">
-            <span class="module-status">Live</span>
-            <strong class="module-title">Expenses</strong>
-            <span class="module-copy">January 2026 through March 2026 with month-based bill tracking.</span>
-          </a>
-
-          <a id="tax-docs-module" class="module-card module-card-secondary" href="#tax-docs">
-            <span class="module-status">Live</span>
-            <strong class="module-title">View Tax Docs</strong>
-            <span class="module-copy">Upload, open, download, and manage PDF tax documents.</span>
-          </a>
-        </div>
-      </section>
-
-      <section id="expenses-view" class="view-section is-hidden">
-        <div class="workspace-hero">
-          <div>
-            <p class="section-label">Expenses</p>
-            <h2 class="workspace-title">Monthly bills</h2>
-            <p class="workspace-copy">Each month keeps its own bill list and payment status.</p>
-          </div>
-          <p id="sync-status" class="sync-status">Loading</p>
-        </div>
-
-        <div class="selector-card">
-          <label class="field-stack" for="month-selector">
-            <span class="field-label">Month</span>
-            <select id="month-selector" class="month-selector"></select>
-          </label>
-          <a id="back-button" class="button button-secondary button-link" href="#dashboard">Back</a>
-        </div>
-
-        <div class="summary-grid">
-          <article class="summary-card summary-card-primary">
-            <span class="summary-label">Still Due</span>
-            <strong id="unpaid-total" class="summary-value">$0.00</strong>
-            <span id="as-of-label" class="summary-meta">As of today</span>
-          </article>
-          <article class="summary-card">
-            <span class="summary-label">Paid</span>
-            <strong id="paid-total" class="summary-value">$0.00</strong>
-          </article>
-          <article class="summary-card">
-            <span class="summary-label">Tithes</span>
-            <strong id="tithes-total" class="summary-value">$0.00</strong>
-            <span id="tithes-rate" class="summary-meta">10% rate</span>
-          </article>
-        </div>
-
-        <section class="action-dock">
-          <button id="add-bill-button" class="button button-primary" type="button">Add Bill</button>
-          <button id="reset-button" class="button button-secondary" type="button">Reset Month</button>
-        </section>
-
-        <section class="list-panel">
-          <div class="section-head">
-            <div>
-              <p class="section-label">Bill list</p>
-              <h3 class="panel-title">Tap to update</h3>
-            </div>
-            <p class="section-note">Paid bills stay saved to that month only.</p>
-          </div>
-          <div id="bills-list" class="bills-list"></div>
-        </section>
-      </section>
-
-      <section id="tax-docs-view" class="view-section is-hidden">
-        <div class="workspace-hero">
-          <div>
-            <p class="section-label">Tax Docs</p>
-            <h2 class="workspace-title">PDF records</h2>
-            <p class="workspace-copy">Keep prior returns and tax paperwork in one place.</p>
-          </div>
-          <p id="tax-sync-status" class="sync-status">Ready</p>
-        </div>
-
-        <section class="upload-panel">
-          <div class="section-head">
-            <div>
-              <p class="section-label">Upload</p>
-              <h3 class="panel-title">Add a PDF</h3>
-            </div>
-            <p class="section-note">PDF only, up to 15MB each.</p>
-          </div>
-
-          <form id="tax-upload-form" class="upload-form">
-            <label class="upload-input-wrap" for="tax-pdf-input">
-              <span class="field-label">Choose file</span>
-              <input id="tax-pdf-input" type="file" accept="application/pdf,.pdf" />
+          <form id="login-form" class="auth-form">
+            <label class="field-stack" for="login-phone">
+              <span class="field-label">Phone number</span>
+              <input id="login-phone" class="text-input" type="tel" inputmode="tel" autocomplete="tel" placeholder="(555) 555-5555" />
             </label>
-            <label class="field-stack" for="tax-category-input">
-              <span class="field-label">Category</span>
-              <select id="tax-category-input" class="month-selector"></select>
+
+            <label class="field-stack" for="login-password">
+              <span class="field-label">Password</span>
+              <input id="login-password" class="text-input" type="password" autocomplete="current-password" placeholder="Password" />
             </label>
-            <label class="field-stack" for="tax-year-input">
-              <span class="field-label">Tax year</span>
-              <select id="tax-year-input" class="month-selector"></select>
-            </label>
-            <label class="field-stack upload-notes-wrap" for="tax-notes-input">
-              <span class="field-label">Notes</span>
-              <textarea id="tax-notes-input" class="notes-input" rows="3" placeholder="Optional notes about this filing or document"></textarea>
-            </label>
-            <button id="tax-upload-button" class="button button-primary" type="submit">Upload PDF</button>
-            <a id="tax-back-button" class="button button-secondary button-link" href="#dashboard">Back</a>
+
+            <button id="login-button" class="button button-primary" type="submit">Sign In</button>
+            <p id="login-status" class="auth-status">Checking session</p>
           </form>
-        </section>
-
-        <section class="list-panel">
-          <div class="section-head">
-            <div>
-              <p class="section-label">Saved docs</p>
-              <h3 class="panel-title">Tax document library</h3>
-            </div>
-          </div>
-
-          <div class="tax-filters">
-            <label class="field-stack">
-              <span class="field-label">Search</span>
-              <input id="tax-search-input" class="text-input" type="search" placeholder="Search filename or notes" />
-            </label>
-            <label class="field-stack">
-              <span class="field-label">Category</span>
-              <select id="tax-filter-category" class="month-selector"></select>
-            </label>
-            <label class="field-stack">
-              <span class="field-label">Year</span>
-              <select id="tax-filter-year" class="month-selector"></select>
-            </label>
-          </div>
-
-          <div id="tax-docs-list" class="tax-docs-list"></div>
-        </section>
+        </div>
       </section>
+
+      <div id="app-view" class="app-view is-hidden">
+        <header class="app-header">
+          <div>
+            <p class="eyebrow">JM Dashboard</p>
+            <h1 class="app-title">Operations Home</h1>
+          </div>
+          <div class="header-actions">
+            <div class="user-pill">
+              <span id="user-name" class="user-name">Account</span>
+              <span id="user-role" class="user-role">Admin</span>
+            </div>
+            <a id="home-button" class="ghost-button" href="#dashboard">Dashboard</a>
+            <button id="logout-button" class="ghost-button ghost-button-danger" type="button">Log Out</button>
+          </div>
+        </header>
+
+        <section id="dashboard-view" class="view-section">
+          <div class="hero-card">
+            <p class="section-label">Modules</p>
+            <h2 class="hero-title">Choose a workspace</h2>
+            <p class="hero-copy">This dashboard now holds expenses and tax records, with room for the next finance tools we add.</p>
+          </div>
+
+          <div class="module-grid">
+            <a id="expenses-module" class="module-card module-card-primary" href="#expenses">
+              <span class="module-status">Live</span>
+              <strong class="module-title">Expenses</strong>
+              <span class="module-copy">January 2026 through March 2026 with month-based bill tracking.</span>
+            </a>
+
+            <a id="tax-docs-module" class="module-card module-card-secondary" href="#tax-docs">
+              <span class="module-status">Live</span>
+              <strong class="module-title">View Tax Docs</strong>
+              <span class="module-copy">Upload, open, download, and manage PDF tax documents.</span>
+            </a>
+          </div>
+        </section>
+
+        <section id="expenses-view" class="view-section is-hidden">
+          <div class="workspace-hero">
+            <div>
+              <p class="section-label">Expenses</p>
+              <h2 class="workspace-title">Monthly bills</h2>
+              <p class="workspace-copy">Each month keeps its own bill list and payment status.</p>
+            </div>
+            <p id="sync-status" class="sync-status">Loading</p>
+          </div>
+
+          <div class="selector-card">
+            <label class="field-stack" for="month-selector">
+              <span class="field-label">Month</span>
+              <select id="month-selector" class="month-selector"></select>
+            </label>
+            <a id="back-button" class="button button-secondary button-link" href="#dashboard">Back</a>
+          </div>
+
+          <div class="summary-grid">
+            <article class="summary-card summary-card-primary">
+              <span class="summary-label">Still Due</span>
+              <strong id="unpaid-total" class="summary-value">$0.00</strong>
+              <span id="as-of-label" class="summary-meta">As of today</span>
+            </article>
+            <article class="summary-card">
+              <span class="summary-label">Paid</span>
+              <strong id="paid-total" class="summary-value">$0.00</strong>
+            </article>
+            <article class="summary-card">
+              <span class="summary-label">Tithes</span>
+              <strong id="tithes-total" class="summary-value">$0.00</strong>
+              <span id="tithes-rate" class="summary-meta">10% rate</span>
+            </article>
+          </div>
+
+          <section class="action-dock">
+            <button id="add-bill-button" class="button button-primary" type="button">Add Bill</button>
+            <button id="reset-button" class="button button-secondary" type="button">Reset Month</button>
+          </section>
+
+          <section class="list-panel">
+            <div class="section-head">
+              <div>
+                <p class="section-label">Bill list</p>
+                <h3 class="panel-title">Tap to update</h3>
+              </div>
+              <p class="section-note">Paid bills stay saved to that month only.</p>
+            </div>
+            <div id="bills-list" class="bills-list"></div>
+          </section>
+        </section>
+
+        <section id="tax-docs-view" class="view-section is-hidden">
+          <div class="workspace-hero">
+            <div>
+              <p class="section-label">Tax Docs</p>
+              <h2 class="workspace-title">PDF records</h2>
+              <p class="workspace-copy">Keep prior returns and tax paperwork in one place.</p>
+            </div>
+            <p id="tax-sync-status" class="sync-status">Ready</p>
+          </div>
+
+          <section class="upload-panel">
+            <div class="section-head">
+              <div>
+                <p class="section-label">Upload</p>
+                <h3 class="panel-title">Add a PDF</h3>
+              </div>
+              <p class="section-note">PDF only, up to 15MB each.</p>
+            </div>
+
+            <form id="tax-upload-form" class="upload-form">
+              <label class="upload-input-wrap" for="tax-pdf-input">
+                <span class="field-label">Choose file</span>
+                <input id="tax-pdf-input" type="file" accept="application/pdf,.pdf" />
+              </label>
+              <label class="field-stack" for="tax-category-input">
+                <span class="field-label">Category</span>
+                <select id="tax-category-input" class="month-selector"></select>
+              </label>
+              <label class="field-stack" for="tax-year-input">
+                <span class="field-label">Tax year</span>
+                <select id="tax-year-input" class="month-selector"></select>
+              </label>
+              <label class="field-stack upload-notes-wrap" for="tax-notes-input">
+                <span class="field-label">Notes</span>
+                <textarea id="tax-notes-input" class="notes-input" rows="3" placeholder="Optional notes about this filing or document"></textarea>
+              </label>
+              <button id="tax-upload-button" class="button button-primary" type="submit">Upload PDF</button>
+              <a id="tax-back-button" class="button button-secondary button-link" href="#dashboard">Back</a>
+            </form>
+          </section>
+
+          <section class="list-panel">
+            <div class="section-head">
+              <div>
+                <p class="section-label">Saved docs</p>
+                <h3 class="panel-title">Tax document library</h3>
+              </div>
+            </div>
+
+            <div class="tax-filters">
+              <label class="field-stack">
+                <span class="field-label">Search</span>
+                <input id="tax-search-input" class="text-input" type="search" placeholder="Search filename or notes" />
+              </label>
+              <label class="field-stack">
+                <span class="field-label">Category</span>
+                <select id="tax-filter-category" class="month-selector"></select>
+              </label>
+              <label class="field-stack">
+                <span class="field-label">Year</span>
+                <select id="tax-filter-year" class="month-selector"></select>
+              </label>
+            </div>
+
+            <div id="tax-docs-list" class="tax-docs-list"></div>
+          </section>
+        </section>
+      </div>
     </div>
 
-    <script src="./app.js?v=20260313b"></script>
+    <script src="./app.js?v=20260313c"></script>
   </body>
 </html>
+
