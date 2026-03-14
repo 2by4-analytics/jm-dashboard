@@ -66,6 +66,9 @@ function bindActions() {
     event.preventDefault();
     login();
   };
+  elements.loginPhone.oninput = function (event) {
+    event.target.value = formatPhoneInput(event.target.value);
+  };
   elements.logoutButton.onclick = logout;
   elements.expensesModule.onclick = function () { showExpenses(); };
   elements.taxDocsModule.onclick = function () { showTaxDocs(); };
@@ -616,3 +619,5 @@ function uploadFormData(file, callback) {
   };
   request.send(formData);
 }
+
+
