@@ -20,36 +20,36 @@
         <div class="hero-card">
           <p class="section-label">Modules</p>
           <h2 class="hero-title">Choose a workspace</h2>
-          <p class="hero-copy">This dashboard will hold expenses, tax documents, and the next finance tools we add.</p>
+          <p class="hero-copy">This dashboard now holds expenses and tax records, with room for the next finance tools we add.</p>
         </div>
 
         <div class="module-grid">
           <button id="expenses-module" class="module-card module-card-primary" type="button">
             <span class="module-status">Live</span>
             <strong class="module-title">Expenses</strong>
-            <span class="module-copy">March is built. January 2026 onward is now selectable.</span>
+            <span class="module-copy">January 2026 through March 2026 with month-based bill tracking.</span>
           </button>
 
-          <button class="module-card module-card-muted" type="button" disabled>
-            <span class="module-status">Not yet built</span>
+          <button id="tax-docs-module" class="module-card module-card-secondary" type="button">
+            <span class="module-status">Live</span>
             <strong class="module-title">View Tax Docs</strong>
-            <span class="module-copy">PDF returns and tax records will live here next.</span>
+            <span class="module-copy">Upload, open, download, and manage PDF tax documents.</span>
           </button>
         </div>
       </section>
 
       <section id="expenses-view" class="view-section is-hidden">
-        <div class="expenses-hero">
+        <div class="workspace-hero">
           <div>
             <p class="section-label">Expenses</p>
-            <h2 class="expenses-title">Monthly bills</h2>
-            <p class="expenses-copy">Each month keeps its own bill list and payment status.</p>
+            <h2 class="workspace-title">Monthly bills</h2>
+            <p class="workspace-copy">Each month keeps its own bill list and payment status.</p>
           </div>
           <p id="sync-status" class="sync-status">Loading</p>
         </div>
 
         <div class="selector-card">
-          <label class="month-selector-wrap" for="month-selector">
+          <label class="field-stack" for="month-selector">
             <span class="field-label">Month</span>
             <select id="month-selector" class="month-selector"></select>
           </label>
@@ -69,7 +69,7 @@
           <article class="summary-card">
             <span class="summary-label">Tithes</span>
             <strong id="tithes-total" class="summary-value">$0.00</strong>
-            <span id="tithes-rate" class="summary-meta">10%</span>
+            <span id="tithes-rate" class="summary-meta">10% rate</span>
           </article>
         </div>
 
@@ -87,6 +87,46 @@
             <p class="section-note">Paid bills stay saved to that month only.</p>
           </div>
           <div id="bills-list" class="bills-list"></div>
+        </section>
+      </section>
+
+      <section id="tax-docs-view" class="view-section is-hidden">
+        <div class="workspace-hero">
+          <div>
+            <p class="section-label">Tax Docs</p>
+            <h2 class="workspace-title">PDF records</h2>
+            <p class="workspace-copy">Keep prior returns and tax paperwork in one place.</p>
+          </div>
+          <p id="tax-sync-status" class="sync-status">Ready</p>
+        </div>
+
+        <section class="upload-panel">
+          <div class="section-head">
+            <div>
+              <p class="section-label">Upload</p>
+              <h3 class="panel-title">Add a PDF</h3>
+            </div>
+            <p class="section-note">PDF only, up to 15MB each.</p>
+          </div>
+
+          <form id="tax-upload-form" class="upload-form">
+            <label class="upload-input-wrap" for="tax-pdf-input">
+              <span class="field-label">Choose file</span>
+              <input id="tax-pdf-input" type="file" accept="application/pdf,.pdf" />
+            </label>
+            <button id="tax-upload-button" class="button button-primary" type="submit">Upload PDF</button>
+            <button id="tax-back-button" class="button button-secondary" type="button">Back</button>
+          </form>
+        </section>
+
+        <section class="list-panel">
+          <div class="section-head">
+            <div>
+              <p class="section-label">Saved docs</p>
+              <h3 class="panel-title">Tax document library</h3>
+            </div>
+          </div>
+          <div id="tax-docs-list" class="tax-docs-list"></div>
         </section>
       </section>
     </div>

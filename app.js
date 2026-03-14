@@ -3,6 +3,7 @@ var state = {
   selectedMonth: "2026-03",
   months: [],
   bills: [],
+  taxDocs: [],
   tithesRate: 0.1,
   saveTimers: {}
 };
@@ -11,10 +12,14 @@ var elements = {
   homeButton: document.getElementById("home-button"),
   dashboardView: document.getElementById("dashboard-view"),
   expensesView: document.getElementById("expenses-view"),
+  taxDocsView: document.getElementById("tax-docs-view"),
   expensesModule: document.getElementById("expenses-module"),
+  taxDocsModule: document.getElementById("tax-docs-module"),
   backButton: document.getElementById("back-button"),
+  taxBackButton: document.getElementById("tax-back-button"),
   monthSelector: document.getElementById("month-selector"),
   syncStatus: document.getElementById("sync-status"),
+  taxSyncStatus: document.getElementById("tax-sync-status"),
   unpaidTotal: document.getElementById("unpaid-total"),
   paidTotal: document.getElementById("paid-total"),
   tithesTotal: document.getElementById("tithes-total"),
@@ -22,7 +27,10 @@ var elements = {
   asOfLabel: document.getElementById("as-of-label"),
   addBillButton: document.getElementById("add-bill-button"),
   resetButton: document.getElementById("reset-button"),
-  billsList: document.getElementById("bills-list")
+  billsList: document.getElementById("bills-list"),
+  taxDocsList: document.getElementById("tax-docs-list"),
+  taxUploadForm: document.getElementById("tax-upload-form"),
+  taxPdfInput: document.getElementById("tax-pdf-input")
 };
 
 boot();
@@ -34,25 +42,25 @@ function boot() {
 
 function bindActions() {
   elements.homeButton.onclick = showDashboard;
-  elements.expensesModule.onclick = function () {
-    showExpenses();
-  };
+  elements.expensesModule.onclick = showExpenses;
+  elements.taxDocsModule.onclick = showTaxDocs;
   elements.backButton.onclick = showDashboard;
+  elements.taxBackButton.onclick = showDashboard;
   elements.monthSelector.onchange = function (event) {
     state.selectedMonth = event.target.value;
     loadMonth();
   };
   elements.addBillButton.onclick = addBill;
   elements.resetButton.onclick = resetBills;
+  elements.taxUploadForm.onsubmit = function (event) {
+    event.preventDefault();
+    uploadTaxDoc();
+  };
 }
 
 function loadBootstrap() {
   requestJson("GET", "/api/bootstrap", null, function (error, payload) {
-    if (error) {
-      setSyncStatus("Offline", "sync-error");
-      return;
-    }
-
+    if (error) return setSyncStatus("Offline", "sync-error");
     state.months = payload.months || [];
     state.selectedMonth = payload.selectedMonth || "2026-03";
     state.tithesRate = payload.tithesRate || 0.1;
@@ -63,12 +71,11 @@ function loadBootstrap() {
 
 function renderMonthOptions() {
   elements.monthSelector.innerHTML = "";
-
   for (var i = 0; i < state.months.length; i += 1) {
     var option = document.createElement("option");
     option.value = state.months[i].value;
     option.textContent = state.months[i].label;
-    if (state.months[i].value === state.selectedMonth) option.selected = true;
+    option.selected = state.months[i].value === state.selectedMonth;
     elements.monthSelector.appendChild(option);
   }
 }
@@ -77,23 +84,29 @@ function showDashboard() {
   state.currentView = "dashboard";
   elements.dashboardView.className = "view-section";
   elements.expensesView.className = "view-section is-hidden";
+  elements.taxDocsView.className = "view-section is-hidden";
 }
 
 function showExpenses() {
   state.currentView = "expenses";
   elements.dashboardView.className = "view-section is-hidden";
   elements.expensesView.className = "view-section";
+  elements.taxDocsView.className = "view-section is-hidden";
   loadMonth();
+}
+
+function showTaxDocs() {
+  state.currentView = "tax-docs";
+  elements.dashboardView.className = "view-section is-hidden";
+  elements.expensesView.className = "view-section is-hidden";
+  elements.taxDocsView.className = "view-section";
+  loadTaxDocs();
 }
 
 function loadMonth() {
   setSyncStatus("Loading", "");
   requestJson("GET", "/api/state?month=" + encodeURIComponent(state.selectedMonth), null, function (error, payload) {
-    if (error) {
-      setSyncStatus("Offline", "sync-error");
-      return;
-    }
-
+    if (error) return setSyncStatus("Offline", "sync-error");
     state.bills = payload.bills || [];
     state.tithesRate = payload.tithesRate || 0.1;
     renderMonthOptions();
@@ -106,11 +119,7 @@ function loadMonth() {
 function addBill() {
   setSyncStatus("Saving", "");
   requestJson("POST", "/api/bills?month=" + encodeURIComponent(state.selectedMonth), { name: "", amount: 0, paid: "NO" }, function (error, bill) {
-    if (error) {
-      setSyncStatus("Save failed", "sync-error");
-      return;
-    }
-
+    if (error) return setSyncStatus("Save failed", "sync-error");
     state.bills.push(bill);
     renderBills();
     renderSummary();
@@ -121,15 +130,8 @@ function addBill() {
 function resetBills() {
   setSyncStatus("Saving", "");
   requestJson("POST", "/api/reset?month=" + encodeURIComponent(state.selectedMonth), {}, function (error) {
-    if (error) {
-      setSyncStatus("Save failed", "sync-error");
-      return;
-    }
-
-    for (var i = 0; i < state.bills.length; i += 1) {
-      state.bills[i].paid = "NO";
-    }
-
+    if (error) return setSyncStatus("Save failed", "sync-error");
+    for (var i = 0; i < state.bills.length; i += 1) state.bills[i].paid = "NO";
     renderBills();
     renderSummary();
     setSyncStatus("Synced", "sync-ok");
@@ -138,10 +140,7 @@ function resetBills() {
 
 function renderBills() {
   elements.billsList.innerHTML = "";
-
-  for (var i = 0; i < state.bills.length; i += 1) {
-    elements.billsList.appendChild(createBillCard(state.bills[i]));
-  }
+  for (var i = 0; i < state.bills.length; i += 1) elements.billsList.appendChild(createBillCard(state.bills[i]));
 }
 
 function createBillCard(bill) {
@@ -150,7 +149,6 @@ function createBillCard(bill) {
 
   var topRow = document.createElement("div");
   topRow.className = "bill-top-row";
-
   var nameWrap = document.createElement("label");
   nameWrap.className = "field-stack";
   var nameLabel = document.createElement("span");
@@ -160,10 +158,7 @@ function createBillCard(bill) {
   nameInput.className = "text-input";
   nameInput.type = "text";
   nameInput.value = bill.name;
-  nameInput.oninput = function (event) {
-    bill.name = event.target.value;
-    queueSave(bill);
-  };
+  nameInput.oninput = function (event) { bill.name = event.target.value; queueSave(bill); };
   nameWrap.appendChild(nameLabel);
   nameWrap.appendChild(nameInput);
 
@@ -193,13 +188,11 @@ function createBillCard(bill) {
   amountBox.appendChild(amountInput);
   amountWrap.appendChild(amountLabel);
   amountWrap.appendChild(amountBox);
-
   topRow.appendChild(nameWrap);
   topRow.appendChild(amountWrap);
 
   var bottomRow = document.createElement("div");
   bottomRow.className = "bill-bottom-row";
-
   var toggleGroup = document.createElement("div");
   toggleGroup.className = "toggle-group";
   toggleGroup.appendChild(createToggleButton(bill, "NO", "Unpaid"));
@@ -212,15 +205,9 @@ function createBillCard(bill) {
   deleteButton.onclick = function () {
     setSyncStatus("Saving", "");
     requestJson("DELETE", "/api/bills/" + bill.id, null, function (error) {
-      if (error) {
-        setSyncStatus("Save failed", "sync-error");
-        return;
-      }
-
+      if (error) return setSyncStatus("Save failed", "sync-error");
       var nextBills = [];
-      for (var i = 0; i < state.bills.length; i += 1) {
-        if (state.bills[i].id !== bill.id) nextBills.push(state.bills[i]);
-      }
+      for (var i = 0; i < state.bills.length; i += 1) if (state.bills[i].id !== bill.id) nextBills.push(state.bills[i]);
       state.bills = nextBills;
       renderBills();
       renderSummary();
@@ -230,7 +217,6 @@ function createBillCard(bill) {
 
   bottomRow.appendChild(toggleGroup);
   bottomRow.appendChild(deleteButton);
-
   card.appendChild(topRow);
   card.appendChild(bottomRow);
   return card;
@@ -262,18 +248,8 @@ function queueSave(bill) {
 
 function saveBillNow(bill) {
   requestJson("PATCH", "/api/bills/" + bill.id, { name: bill.name, amount: bill.amount, paid: bill.paid }, function (error, savedBill) {
-    if (error) {
-      setSyncStatus("Save failed", "sync-error");
-      return;
-    }
-
-    for (var i = 0; i < state.bills.length; i += 1) {
-      if (state.bills[i].id === savedBill.id) {
-        state.bills[i] = savedBill;
-        break;
-      }
-    }
-
+    if (error) return setSyncStatus("Save failed", "sync-error");
+    for (var i = 0; i < state.bills.length; i += 1) if (state.bills[i].id === savedBill.id) state.bills[i] = savedBill;
     renderBills();
     renderSummary();
     setSyncStatus("Synced", "sync-ok");
@@ -283,13 +259,11 @@ function saveBillNow(bill) {
 function renderSummary() {
   var paidTotal = 0;
   var unpaidTotal = 0;
-
   for (var i = 0; i < state.bills.length; i += 1) {
     var amount = isFinite(state.bills[i].amount) ? state.bills[i].amount : 0;
     if (state.bills[i].paid === "YES") paidTotal += amount;
     else unpaidTotal += amount;
   }
-
   elements.unpaidTotal.textContent = formatCurrency(unpaidTotal);
   elements.paidTotal.textContent = formatCurrency(paidTotal);
   elements.tithesTotal.textContent = formatCurrency(paidTotal * state.tithesRate);
@@ -298,10 +272,111 @@ function renderSummary() {
 }
 
 function labelForMonth(monthKey) {
-  for (var i = 0; i < state.months.length; i += 1) {
-    if (state.months[i].value === monthKey) return state.months[i].label;
-  }
+  for (var i = 0; i < state.months.length; i += 1) if (state.months[i].value === monthKey) return state.months[i].label;
   return monthKey;
+}
+
+function loadTaxDocs() {
+  setTaxSyncStatus("Loading", "");
+  requestJson("GET", "/api/tax-docs", null, function (error, payload) {
+    if (error) return setTaxSyncStatus("Offline", "sync-error");
+    state.taxDocs = payload.docs || [];
+    renderTaxDocs();
+    setTaxSyncStatus("Ready", "sync-ok");
+  });
+}
+
+function uploadTaxDoc() {
+  var file = elements.taxPdfInput.files && elements.taxPdfInput.files[0];
+  if (!file) {
+    setTaxSyncStatus("Choose a PDF", "sync-error");
+    return;
+  }
+
+  if (!/pdf$/i.test(file.name) && file.type !== "application/pdf") {
+    setTaxSyncStatus("PDF only", "sync-error");
+    return;
+  }
+
+  setTaxSyncStatus("Uploading", "");
+  uploadFormData("/api/tax-docs", file, function (error, doc) {
+    if (error) {
+      setTaxSyncStatus(error.message || "Upload failed", "sync-error");
+      return;
+    }
+
+    elements.taxPdfInput.value = "";
+    state.taxDocs.unshift(doc);
+    renderTaxDocs();
+    setTaxSyncStatus("Saved", "sync-ok");
+  });
+}
+
+function renderTaxDocs() {
+  elements.taxDocsList.innerHTML = "";
+  if (!state.taxDocs.length) {
+    var empty = document.createElement("div");
+    empty.className = "empty-card";
+    empty.textContent = "No tax PDFs uploaded yet.";
+    elements.taxDocsList.appendChild(empty);
+    return;
+  }
+
+  for (var i = 0; i < state.taxDocs.length; i += 1) {
+    elements.taxDocsList.appendChild(createTaxDocCard(state.taxDocs[i]));
+  }
+}
+
+function createTaxDocCard(doc) {
+  var card = document.createElement("article");
+  card.className = "tax-doc-card";
+
+  var meta = document.createElement("div");
+  meta.className = "tax-doc-meta";
+  var title = document.createElement("strong");
+  title.className = "tax-doc-title";
+  title.textContent = doc.original_name;
+  var details = document.createElement("span");
+  details.className = "tax-doc-details";
+  details.textContent = formatBytes(doc.byte_size) + " • " + formatDateTime(doc.uploaded_at);
+  meta.appendChild(title);
+  meta.appendChild(details);
+
+  var actions = document.createElement("div");
+  actions.className = "tax-doc-actions";
+  actions.appendChild(createLinkButton("View", "/api/tax-docs/" + doc.id + "/view"));
+  actions.appendChild(createLinkButton("Download", "/api/tax-docs/" + doc.id + "/download"));
+
+  var deleteButton = document.createElement("button");
+  deleteButton.className = "delete-link";
+  deleteButton.type = "button";
+  deleteButton.textContent = "Delete";
+  deleteButton.onclick = function () {
+    setTaxSyncStatus("Saving", "");
+    requestJson("DELETE", "/api/tax-docs/" + doc.id, null, function (error) {
+      if (error) return setTaxSyncStatus("Delete failed", "sync-error");
+      var nextDocs = [];
+      for (var i = 0; i < state.taxDocs.length; i += 1) if (state.taxDocs[i].id !== doc.id) nextDocs.push(state.taxDocs[i]);
+      state.taxDocs = nextDocs;
+      renderTaxDocs();
+      setTaxSyncStatus("Saved", "sync-ok");
+    });
+  };
+  actions.appendChild(deleteButton);
+
+  card.appendChild(meta);
+  card.appendChild(actions);
+  return card;
+}
+
+function createLinkButton(label, href) {
+  var link = document.createElement("a");
+  link.className = "mini-button";
+  link.href = href;
+  link.target = "_blank";
+  link.rel = "noreferrer";
+  link.textContent = label;
+  return link;
 }
 
 function setSyncStatus(label, className) {
@@ -309,8 +384,26 @@ function setSyncStatus(label, className) {
   elements.syncStatus.className = className ? "sync-status " + className : "sync-status";
 }
 
+function setTaxSyncStatus(label, className) {
+  elements.taxSyncStatus.textContent = label;
+  elements.taxSyncStatus.className = className ? "sync-status " + className : "sync-status";
+}
+
 function formatCurrency(value) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
+}
+
+function formatBytes(value) {
+  if (value >= 1024 * 1024) return (value / (1024 * 1024)).toFixed(1) + " MB";
+  return Math.max(1, Math.round(value / 1024)) + " KB";
+}
+
+function formatDateTime(value) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  }).format(new Date(value));
 }
 
 function requestJson(method, url, body, callback) {
@@ -318,23 +411,43 @@ function requestJson(method, url, body, callback) {
   request.open(method, url, true);
   request.setRequestHeader("Accept", "application/json");
   if (body) request.setRequestHeader("Content-Type", "application/json");
-
   request.onreadystatechange = function () {
     if (request.readyState !== 4) return;
     if (request.status >= 200 && request.status < 300) {
       if (!request.responseText) return callback(null, null);
-      try {
-        return callback(null, JSON.parse(request.responseText));
-      } catch (error) {
-        return callback(error);
-      }
+      try { return callback(null, JSON.parse(request.responseText)); }
+      catch (error) { return callback(error); }
     }
-    callback(new Error("Request failed with status " + request.status));
+    try {
+      var parsed = request.responseText ? JSON.parse(request.responseText) : null;
+      callback(new Error(parsed && parsed.error ? parsed.error : "Request failed with status " + request.status));
+    } catch (error) {
+      callback(new Error("Request failed with status " + request.status));
+    }
   };
-
-  request.onerror = function () {
-    callback(new Error("Network request failed"));
-  };
-
+  request.onerror = function () { callback(new Error("Network request failed")); };
   request.send(body ? JSON.stringify(body) : null);
+}
+
+function uploadFormData(url, file, callback) {
+  var formData = new FormData();
+  formData.append("file", file);
+  var request = new XMLHttpRequest();
+  request.open("POST", url, true);
+  request.onreadystatechange = function () {
+    if (request.readyState !== 4) return;
+    if (request.status >= 200 && request.status < 300) {
+      try { callback(null, JSON.parse(request.responseText)); }
+      catch (error) { callback(error); }
+      return;
+    }
+    try {
+      var parsed = request.responseText ? JSON.parse(request.responseText) : null;
+      callback(new Error(parsed && parsed.error ? parsed.error : "Upload failed"));
+    } catch (error) {
+      callback(new Error("Upload failed"));
+    }
+  };
+  request.onerror = function () { callback(new Error("Network request failed")); };
+  request.send(formData);
 }

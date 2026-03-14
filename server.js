@@ -2,13 +2,14 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const Busboy = require("busboy");
 const { Client } = require("pg");
 
 const port = Number(process.env.PORT || 3000);
 const root = __dirname;
 const tithesRate = 0.1;
-const startMonthKey = "2026-01";
 const currentMonthKey = "2026-03";
+const maxPdfBytes = 15 * 1024 * 1024;
 const seedBills = [
   ["Child Support", 650, "NO"],
   ["Health Insurance", 300, "NO"],
@@ -61,9 +62,7 @@ start().catch((error) => {
 });
 
 async function start() {
-  if (!process.env.DATABASE_URL) {
-    throw new Error("DATABASE_URL is required.");
-  }
+  if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required.");
 
   await client.connect();
   await ensureSchema();
@@ -74,9 +73,7 @@ async function start() {
       const url = new URL(req.url, `http://${req.headers.host}`);
       const monthKey = getMonthKey(url.searchParams.get("month"));
 
-      if (url.pathname === "/health" && req.method === "GET") {
-        return sendJson(res, 200, { ok: true });
-      }
+      if (url.pathname === "/health" && req.method === "GET") return sendJson(res, 200, { ok: true });
 
       if (url.pathname === "/api/bootstrap" && req.method === "GET") {
         return sendJson(res, 200, {
@@ -103,34 +100,54 @@ async function start() {
       }
 
       if (url.pathname === "/api/reset" && req.method === "POST") {
-        await client.query(
-          "UPDATE bills SET paid = 'NO', updated_at = NOW() WHERE deleted_at IS NULL AND month_key = $1",
-          [monthKey]
-        );
+        await client.query("UPDATE bills SET paid = 'NO', updated_at = NOW() WHERE deleted_at IS NULL AND month_key = $1", [monthKey]);
         return sendJson(res, 200, { ok: true });
+      }
+
+      if (url.pathname === "/api/tax-docs" && req.method === "GET") {
+        return sendJson(res, 200, { docs: await listTaxDocs() });
+      }
+
+      if (url.pathname === "/api/tax-docs" && req.method === "POST") {
+        const uploaded = await parsePdfUpload(req);
+        const doc = await createTaxDoc(uploaded);
+        return sendJson(res, 201, doc);
       }
 
       const billMatch = url.pathname.match(/^\/api\/bills\/([a-f0-9-]+)$/i);
       if (billMatch) {
         const billId = billMatch[1];
-
         if (req.method === "PATCH") {
           const body = await readJsonBody(req);
           const bill = await updateBill(billId, body || {});
           if (!bill) return sendJson(res, 404, { error: "Bill not found" });
           return sendJson(res, 200, bill);
         }
-
         if (req.method === "DELETE") {
           await client.query("UPDATE bills SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1", [billId]);
           return sendJson(res, 204, null);
         }
       }
 
+      const taxDocMatch = url.pathname.match(/^\/api\/tax-docs\/([a-f0-9-]+)(?:\/(download|view))?$/i);
+      if (taxDocMatch) {
+        const docId = taxDocMatch[1];
+        const mode = taxDocMatch[2] || "meta";
+
+        if (req.method === "DELETE" && mode === "meta") {
+          await client.query("UPDATE tax_docs SET deleted_at = NOW() WHERE id = $1", [docId]);
+          return sendJson(res, 204, null);
+        }
+
+        if (req.method === "GET" && (mode === "download" || mode === "view")) {
+          return streamTaxDoc(res, docId, mode);
+        }
+      }
+
       return serveStatic(res, url.pathname);
     } catch (error) {
       console.error("Request failed", error);
-      sendJson(res, 500, { error: "Internal server error" });
+      sendJson(res, error.statusCode || 500, { error: error.message || "Internal server error" });
     }
   });
 
@@ -153,22 +170,28 @@ async function ensureSchema() {
       deleted_at TIMESTAMPTZ
     )
   `);
-
   await client.query("ALTER TABLE bills ADD COLUMN IF NOT EXISTS month_key TEXT");
   await client.query("UPDATE bills SET month_key = $1 WHERE month_key IS NULL", [currentMonthKey]);
   await client.query("CREATE INDEX IF NOT EXISTS bills_month_key_sort_idx ON bills (month_key, sort_order)");
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS tax_docs (
+      id TEXT PRIMARY KEY,
+      original_name TEXT NOT NULL,
+      content_type TEXT NOT NULL,
+      byte_size INTEGER NOT NULL,
+      uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ,
+      file_data BYTEA NOT NULL
+    )
+  `);
 }
 
 async function ensureSeedData() {
   const months = listAvailableMonths();
-
   for (let index = 0; index < months.length; index += 1) {
     const monthKey = months[index].value;
-    const { rows } = await client.query(
-      "SELECT COUNT(*)::int AS count FROM bills WHERE deleted_at IS NULL AND month_key = $1",
-      [monthKey]
-    );
-
+    const { rows } = await client.query("SELECT COUNT(*)::int AS count FROM bills WHERE deleted_at IS NULL AND month_key = $1", [monthKey]);
     if (rows[0].count > 0) continue;
 
     for (let billIndex = 0; billIndex < seedBills.length; billIndex += 1) {
@@ -206,10 +229,7 @@ async function listBills(monthKey) {
 }
 
 async function createBill(monthKey, input) {
-  const { rows } = await client.query(
-    "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM bills WHERE deleted_at IS NULL AND month_key = $1",
-    [monthKey]
-  );
+  const { rows } = await client.query("SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM bills WHERE deleted_at IS NULL AND month_key = $1", [monthKey]);
   const bill = normalizeBillInput(input);
   const created = await client.query(
     `INSERT INTO bills (id, month_key, name, amount, paid, sort_order)
@@ -232,6 +252,113 @@ async function updateBill(id, input) {
   return result.rows[0] || null;
 }
 
+async function listTaxDocs() {
+  const { rows } = await client.query(
+    "SELECT id, original_name, content_type, byte_size, uploaded_at FROM tax_docs WHERE deleted_at IS NULL ORDER BY uploaded_at DESC"
+  );
+  return rows;
+}
+
+async function createTaxDoc(uploaded) {
+  const result = await client.query(
+    `INSERT INTO tax_docs (id, original_name, content_type, byte_size, file_data)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING id, original_name, content_type, byte_size, uploaded_at`,
+    [crypto.randomUUID(), uploaded.filename, uploaded.contentType, uploaded.buffer.length, uploaded.buffer]
+  );
+  return result.rows[0];
+}
+
+async function streamTaxDoc(res, docId, mode) {
+  const result = await client.query(
+    "SELECT original_name, content_type, file_data FROM tax_docs WHERE id = $1 AND deleted_at IS NULL",
+    [docId]
+  );
+  const row = result.rows[0];
+  if (!row) return sendJson(res, 404, { error: "Document not found" });
+
+  const dispositionType = mode === "download" ? "attachment" : "inline";
+  res.writeHead(200, {
+    "Content-Type": row.content_type,
+    "Content-Length": row.file_data.length,
+    "Content-Disposition": dispositionType + '; filename="' + sanitizeFilename(row.original_name) + '"',
+    "Cache-Control": "no-cache",
+  });
+  res.end(row.file_data);
+}
+
+function parsePdfUpload(req) {
+  return new Promise((resolve, reject) => {
+    if (!req.headers["content-type"] || req.headers["content-type"].indexOf("multipart/form-data") !== 0) {
+      const error = new Error("Upload must use multipart/form-data");
+      error.statusCode = 400;
+      reject(error);
+      return;
+    }
+
+    const busboy = Busboy({ headers: req.headers, limits: { files: 1, fileSize: maxPdfBytes } });
+    let uploadedFile = null;
+    let finished = false;
+
+    busboy.on("file", function (fieldName, file, info) {
+      const chunks = [];
+      const filename = info && info.filename ? info.filename : "document.pdf";
+      const mimeType = info && info.mimeType ? info.mimeType : "application/pdf";
+
+      if (mimeType !== "application/pdf" && !/\.pdf$/i.test(filename)) {
+        file.resume();
+        const error = new Error("Only PDF files are supported");
+        error.statusCode = 400;
+        rejectOnce(error);
+        return;
+      }
+
+      file.on("data", function (chunk) {
+        chunks.push(chunk);
+      });
+
+      file.on("limit", function () {
+        const error = new Error("PDF exceeds the 15MB upload limit");
+        error.statusCode = 400;
+        rejectOnce(error);
+      });
+
+      file.on("end", function () {
+        if (finished) return;
+        uploadedFile = {
+          filename: filename,
+          contentType: "application/pdf",
+          buffer: Buffer.concat(chunks),
+        };
+      });
+    });
+
+    busboy.on("finish", function () {
+      if (finished) return;
+      if (!uploadedFile || !uploadedFile.buffer.length) {
+        const error = new Error("No PDF file was uploaded");
+        error.statusCode = 400;
+        rejectOnce(error);
+        return;
+      }
+      finished = true;
+      resolve(uploadedFile);
+    });
+
+    busboy.on("error", function (error) {
+      rejectOnce(error);
+    });
+
+    function rejectOnce(error) {
+      if (finished) return;
+      finished = true;
+      reject(error);
+    }
+
+    req.pipe(busboy);
+  });
+}
+
 function normalizeBillInput(input) {
   return {
     name: typeof input.name === "string" ? input.name.slice(0, 200) : "",
@@ -240,10 +367,13 @@ function normalizeBillInput(input) {
   };
 }
 
+function sanitizeFilename(name) {
+  return String(name || "document.pdf").replace(/[^a-zA-Z0-9._-]+/g, "-");
+}
+
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     let body = "";
-
     req.on("data", (chunk) => {
       body += chunk;
       if (body.length > 1000000) {
@@ -251,7 +381,6 @@ function readJsonBody(req) {
         reject(new Error("Request too large"));
       }
     });
-
     req.on("end", () => {
       if (!body) return resolve({});
       try {
@@ -260,7 +389,6 @@ function readJsonBody(req) {
         reject(error);
       }
     });
-
     req.on("error", reject);
   });
 }
@@ -279,13 +407,11 @@ function serveStatic(res, pathname) {
             res.end("Server error");
             return;
           }
-
           res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
           res.end(fallbackData);
         });
         return;
       }
-
       res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
       res.end("Server error");
       return;
@@ -306,7 +432,6 @@ function sendJson(res, statusCode, payload) {
     res.end();
     return;
   }
-
   res.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(payload));
 }
