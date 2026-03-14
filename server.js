@@ -7,6 +7,8 @@ const { Client } = require("pg");
 const port = Number(process.env.PORT || 3000);
 const root = __dirname;
 const tithesRate = 0.1;
+const startMonthKey = "2026-01";
+const currentMonthKey = "2026-03";
 const seedBills = [
   ["Child Support", 650, "NO"],
   ["Health Insurance", 300, "NO"],
@@ -70,23 +72,41 @@ async function start() {
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, `http://${req.headers.host}`);
+      const monthKey = getMonthKey(url.searchParams.get("month"));
 
       if (url.pathname === "/health" && req.method === "GET") {
         return sendJson(res, 200, { ok: true });
       }
 
+      if (url.pathname === "/api/bootstrap" && req.method === "GET") {
+        return sendJson(res, 200, {
+          months: listAvailableMonths(),
+          selectedMonth: monthKey,
+          currentMonth: currentMonthKey,
+          tithesRate: tithesRate,
+        });
+      }
+
       if (url.pathname === "/api/state" && req.method === "GET") {
-        return sendJson(res, 200, { bills: await listBills(), tithesRate });
+        return sendJson(res, 200, {
+          bills: await listBills(monthKey),
+          month: monthKey,
+          months: listAvailableMonths(),
+          tithesRate: tithesRate,
+        });
       }
 
       if (url.pathname === "/api/bills" && req.method === "POST") {
         const body = await readJsonBody(req);
-        const bill = await createBill(body || {});
+        const bill = await createBill(monthKey, body || {});
         return sendJson(res, 201, bill);
       }
 
       if (url.pathname === "/api/reset" && req.method === "POST") {
-        await client.query("UPDATE bills SET paid = 'NO', updated_at = NOW() WHERE deleted_at IS NULL");
+        await client.query(
+          "UPDATE bills SET paid = 'NO', updated_at = NOW() WHERE deleted_at IS NULL AND month_key = $1",
+          [monthKey]
+        );
         return sendJson(res, 200, { ok: true });
       }
 
@@ -107,7 +127,7 @@ async function start() {
         }
       }
 
-      return serveStatic(req, res, url.pathname);
+      return serveStatic(res, url.pathname);
     } catch (error) {
       console.error("Request failed", error);
       sendJson(res, 500, { error: "Internal server error" });
@@ -123,6 +143,7 @@ async function ensureSchema() {
   await client.query(`
     CREATE TABLE IF NOT EXISTS bills (
       id TEXT PRIMARY KEY,
+      month_key TEXT,
       name TEXT NOT NULL DEFAULT '',
       amount NUMERIC(12,2) NOT NULL DEFAULT 0,
       paid TEXT NOT NULL DEFAULT 'NO',
@@ -132,36 +153,69 @@ async function ensureSchema() {
       deleted_at TIMESTAMPTZ
     )
   `);
+
+  await client.query("ALTER TABLE bills ADD COLUMN IF NOT EXISTS month_key TEXT");
+  await client.query("UPDATE bills SET month_key = $1 WHERE month_key IS NULL", [currentMonthKey]);
+  await client.query("CREATE INDEX IF NOT EXISTS bills_month_key_sort_idx ON bills (month_key, sort_order)");
 }
 
 async function ensureSeedData() {
-  const { rows } = await client.query("SELECT COUNT(*)::int AS count FROM bills WHERE deleted_at IS NULL");
-  if (rows[0].count > 0) return;
+  const months = listAvailableMonths();
 
-  for (let index = 0; index < seedBills.length; index += 1) {
-    const [name, amount, paid] = seedBills[index];
-    await client.query(
-      "INSERT INTO bills (id, name, amount, paid, sort_order) VALUES ($1, $2, $3, $4, $5)",
-      [crypto.randomUUID(), name, amount, paid, index]
+  for (let index = 0; index < months.length; index += 1) {
+    const monthKey = months[index].value;
+    const { rows } = await client.query(
+      "SELECT COUNT(*)::int AS count FROM bills WHERE deleted_at IS NULL AND month_key = $1",
+      [monthKey]
     );
+
+    if (rows[0].count > 0) continue;
+
+    for (let billIndex = 0; billIndex < seedBills.length; billIndex += 1) {
+      const seed = seedBills[billIndex];
+      await client.query(
+        "INSERT INTO bills (id, month_key, name, amount, paid, sort_order) VALUES ($1, $2, $3, $4, $5, $6)",
+        [crypto.randomUUID(), monthKey, seed[0], seed[1], seed[2], billIndex]
+      );
+    }
   }
 }
 
-async function listBills() {
+function listAvailableMonths() {
+  return [
+    { value: "2026-01", label: "January 2026" },
+    { value: "2026-02", label: "February 2026" },
+    { value: "2026-03", label: "March 2026" },
+  ];
+}
+
+function getMonthKey(candidate) {
+  const months = listAvailableMonths();
+  for (let i = 0; i < months.length; i += 1) {
+    if (months[i].value === candidate) return candidate;
+  }
+  return currentMonthKey;
+}
+
+async function listBills(monthKey) {
   const { rows } = await client.query(
-    "SELECT id, name, amount::float8 AS amount, paid, sort_order FROM bills WHERE deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC"
+    "SELECT id, month_key, name, amount::float8 AS amount, paid, sort_order FROM bills WHERE deleted_at IS NULL AND month_key = $1 ORDER BY sort_order ASC, created_at ASC",
+    [monthKey]
   );
   return rows;
 }
 
-async function createBill(input) {
-  const { rows } = await client.query("SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM bills WHERE deleted_at IS NULL");
+async function createBill(monthKey, input) {
+  const { rows } = await client.query(
+    "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM bills WHERE deleted_at IS NULL AND month_key = $1",
+    [monthKey]
+  );
   const bill = normalizeBillInput(input);
   const created = await client.query(
-    `INSERT INTO bills (id, name, amount, paid, sort_order)
-     VALUES ($1, $2, $3, $4, $5)
-     RETURNING id, name, amount::float8 AS amount, paid, sort_order`,
-    [crypto.randomUUID(), bill.name, bill.amount, bill.paid, rows[0].next_order]
+    `INSERT INTO bills (id, month_key, name, amount, paid, sort_order)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id, month_key, name, amount::float8 AS amount, paid, sort_order`,
+    [crypto.randomUUID(), monthKey, bill.name, bill.amount, bill.paid, rows[0].next_order]
   );
   return created.rows[0];
 }
@@ -172,7 +226,7 @@ async function updateBill(id, input) {
     `UPDATE bills
      SET name = $2, amount = $3, paid = $4, updated_at = NOW()
      WHERE id = $1 AND deleted_at IS NULL
-     RETURNING id, name, amount::float8 AS amount, paid, sort_order`,
+     RETURNING id, month_key, name, amount::float8 AS amount, paid, sort_order`,
     [id, bill.name, bill.amount, bill.paid]
   );
   return result.rows[0] || null;
@@ -192,7 +246,7 @@ function readJsonBody(req) {
 
     req.on("data", (chunk) => {
       body += chunk;
-      if (body.length > 1_000_000) {
+      if (body.length > 1000000) {
         req.destroy();
         reject(new Error("Request too large"));
       }
@@ -211,7 +265,7 @@ function readJsonBody(req) {
   });
 }
 
-function serveStatic(req, res, pathname) {
+function serveStatic(res, pathname) {
   const requestPath = pathname === "/" ? "/index.html" : pathname;
   const safePath = path.normalize(requestPath).replace(/^([.][.][/\\])+/, "");
   const filePath = path.join(root, safePath);
@@ -256,4 +310,3 @@ function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(payload));
 }
-

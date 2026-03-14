@@ -1,75 +1,127 @@
-var DEFAULT_TITHES_RATE = 0.1;
-var SAVE_DEBOUNCE_MS = 400;
-
 var state = {
+  currentView: "dashboard",
+  selectedMonth: "2026-03",
+  months: [],
   bills: [],
-  tithesRate: DEFAULT_TITHES_RATE,
+  tithesRate: 0.1,
   saveTimers: {}
 };
 
 var elements = {
-  billsList: document.getElementById("bills-list"),
+  homeButton: document.getElementById("home-button"),
+  dashboardView: document.getElementById("dashboard-view"),
+  expensesView: document.getElementById("expenses-view"),
+  expensesModule: document.getElementById("expenses-module"),
+  backButton: document.getElementById("back-button"),
+  monthSelector: document.getElementById("month-selector"),
+  syncStatus: document.getElementById("sync-status"),
   unpaidTotal: document.getElementById("unpaid-total"),
   paidTotal: document.getElementById("paid-total"),
-  tithesRate: document.getElementById("tithes-rate"),
   tithesTotal: document.getElementById("tithes-total"),
+  tithesRate: document.getElementById("tithes-rate"),
   asOfLabel: document.getElementById("as-of-label"),
-  syncStatus: document.getElementById("sync-status"),
   addBillButton: document.getElementById("add-bill-button"),
-  resetButton: document.getElementById("reset-button")
+  resetButton: document.getElementById("reset-button"),
+  billsList: document.getElementById("bills-list")
 };
 
 boot();
 
 function boot() {
   bindActions();
-  loadState();
+  loadBootstrap();
 }
 
 function bindActions() {
+  elements.homeButton.onclick = showDashboard;
+  elements.expensesModule.onclick = function () {
+    showExpenses();
+  };
+  elements.backButton.onclick = showDashboard;
+  elements.monthSelector.onchange = function (event) {
+    state.selectedMonth = event.target.value;
+    loadMonth();
+  };
   elements.addBillButton.onclick = addBill;
   elements.resetButton.onclick = resetBills;
 }
 
-function loadState() {
-  setSyncStatus("Loading", "");
-
-  requestJson("GET", "/api/state", null, function (error, payload) {
+function loadBootstrap() {
+  requestJson("GET", "/api/bootstrap", null, function (error, payload) {
     if (error) {
-      console.error(error);
       setSyncStatus("Offline", "sync-error");
       return;
     }
 
-    state.bills = payload && payload.bills ? payload.bills : [];
-    state.tithesRate = payload && typeof payload.tithesRate === "number" ? payload.tithesRate : DEFAULT_TITHES_RATE;
-    render();
+    state.months = payload.months || [];
+    state.selectedMonth = payload.selectedMonth || "2026-03";
+    state.tithesRate = payload.tithesRate || 0.1;
+    renderMonthOptions();
+    showDashboard();
+  });
+}
+
+function renderMonthOptions() {
+  elements.monthSelector.innerHTML = "";
+
+  for (var i = 0; i < state.months.length; i += 1) {
+    var option = document.createElement("option");
+    option.value = state.months[i].value;
+    option.textContent = state.months[i].label;
+    if (state.months[i].value === state.selectedMonth) option.selected = true;
+    elements.monthSelector.appendChild(option);
+  }
+}
+
+function showDashboard() {
+  state.currentView = "dashboard";
+  elements.dashboardView.className = "view-section";
+  elements.expensesView.className = "view-section is-hidden";
+}
+
+function showExpenses() {
+  state.currentView = "expenses";
+  elements.dashboardView.className = "view-section is-hidden";
+  elements.expensesView.className = "view-section";
+  loadMonth();
+}
+
+function loadMonth() {
+  setSyncStatus("Loading", "");
+  requestJson("GET", "/api/state?month=" + encodeURIComponent(state.selectedMonth), null, function (error, payload) {
+    if (error) {
+      setSyncStatus("Offline", "sync-error");
+      return;
+    }
+
+    state.bills = payload.bills || [];
+    state.tithesRate = payload.tithesRate || 0.1;
+    renderMonthOptions();
+    renderBills();
+    renderSummary();
     setSyncStatus("Synced", "sync-ok");
   });
 }
 
 function addBill() {
   setSyncStatus("Saving", "");
-
-  requestJson("POST", "/api/bills", { name: "", amount: 0, paid: "NO" }, function (error, bill) {
+  requestJson("POST", "/api/bills?month=" + encodeURIComponent(state.selectedMonth), { name: "", amount: 0, paid: "NO" }, function (error, bill) {
     if (error) {
-      console.error(error);
       setSyncStatus("Save failed", "sync-error");
       return;
     }
 
     state.bills.push(bill);
-    render();
+    renderBills();
+    renderSummary();
     setSyncStatus("Synced", "sync-ok");
   });
 }
 
 function resetBills() {
   setSyncStatus("Saving", "");
-
-  requestJson("POST", "/api/reset", {}, function (error) {
+  requestJson("POST", "/api/reset?month=" + encodeURIComponent(state.selectedMonth), {}, function (error) {
     if (error) {
-      console.error(error);
       setSyncStatus("Save failed", "sync-error");
       return;
     }
@@ -78,19 +130,18 @@ function resetBills() {
       state.bills[i].paid = "NO";
     }
 
-    render();
+    renderBills();
+    renderSummary();
     setSyncStatus("Synced", "sync-ok");
   });
 }
 
-function render() {
+function renderBills() {
   elements.billsList.innerHTML = "";
 
   for (var i = 0; i < state.bills.length; i += 1) {
     elements.billsList.appendChild(createBillCard(state.bills[i]));
   }
-
-  renderSummary();
 }
 
 function createBillCard(bill) {
@@ -101,15 +152,14 @@ function createBillCard(bill) {
   topRow.className = "bill-top-row";
 
   var nameWrap = document.createElement("label");
-  nameWrap.className = "bill-name-wrap";
+  nameWrap.className = "field-stack";
   var nameLabel = document.createElement("span");
   nameLabel.className = "field-label";
   nameLabel.textContent = "Bill";
   var nameInput = document.createElement("input");
-  nameInput.className = "bill-name-input";
+  nameInput.className = "text-input";
   nameInput.type = "text";
   nameInput.value = bill.name;
-  nameInput.setAttribute("aria-label", "Bill name");
   nameInput.oninput = function (event) {
     bill.name = event.target.value;
     queueSave(bill);
@@ -118,7 +168,7 @@ function createBillCard(bill) {
   nameWrap.appendChild(nameInput);
 
   var amountWrap = document.createElement("label");
-  amountWrap.className = "bill-amount-wrap";
+  amountWrap.className = "field-stack";
   var amountLabel = document.createElement("span");
   amountLabel.className = "field-label";
   amountLabel.textContent = "Amount";
@@ -128,12 +178,10 @@ function createBillCard(bill) {
   currencyMark.className = "currency-mark";
   currencyMark.textContent = "$";
   var amountInput = document.createElement("input");
-  amountInput.className = "bill-amount-input";
+  amountInput.className = "amount-input";
   amountInput.type = "number";
   amountInput.min = "0";
   amountInput.step = "0.01";
-  amountInput.setAttribute("inputmode", "decimal");
-  amountInput.setAttribute("aria-label", "Bill amount");
   amountInput.value = bill.amount ? String(bill.amount) : "";
   amountInput.oninput = function (event) {
     var nextAmount = parseFloat(event.target.value);
@@ -154,20 +202,17 @@ function createBillCard(bill) {
 
   var toggleGroup = document.createElement("div");
   toggleGroup.className = "toggle-group";
-  toggleGroup.setAttribute("role", "group");
-  toggleGroup.setAttribute("aria-label", "Paid status");
   toggleGroup.appendChild(createToggleButton(bill, "NO", "Unpaid"));
   toggleGroup.appendChild(createToggleButton(bill, "YES", "Paid"));
 
   var deleteButton = document.createElement("button");
-  deleteButton.className = "delete-link delete-row-button";
+  deleteButton.className = "delete-link";
   deleteButton.type = "button";
   deleteButton.textContent = "Delete";
   deleteButton.onclick = function () {
     setSyncStatus("Saving", "");
     requestJson("DELETE", "/api/bills/" + bill.id, null, function (error) {
       if (error) {
-        console.error(error);
         setSyncStatus("Save failed", "sync-error");
         return;
       }
@@ -177,7 +222,8 @@ function createBillCard(bill) {
         if (state.bills[i].id !== bill.id) nextBills.push(state.bills[i]);
       }
       state.bills = nextBills;
-      render();
+      renderBills();
+      renderSummary();
       setSyncStatus("Synced", "sync-ok");
     });
   };
@@ -194,12 +240,12 @@ function createToggleButton(bill, value, label) {
   var button = document.createElement("button");
   button.className = "toggle-button" + (bill.paid === value ? " is-active" : "");
   button.type = "button";
-  button.setAttribute("data-value", value);
   button.textContent = label;
   button.onclick = function () {
     if (bill.paid === value) return;
     bill.paid = value;
-    render();
+    renderBills();
+    renderSummary();
     saveBillNow(bill);
   };
   return button;
@@ -207,24 +253,16 @@ function createToggleButton(bill, value, label) {
 
 function queueSave(bill) {
   setSyncStatus("Saving", "");
-  if (state.saveTimers[bill.id]) {
-    clearTimeout(state.saveTimers[bill.id]);
-  }
-
+  if (state.saveTimers[bill.id]) clearTimeout(state.saveTimers[bill.id]);
   state.saveTimers[bill.id] = setTimeout(function () {
     delete state.saveTimers[bill.id];
     saveBillNow(bill);
-  }, SAVE_DEBOUNCE_MS);
+  }, 350);
 }
 
 function saveBillNow(bill) {
-  requestJson("PATCH", "/api/bills/" + bill.id, {
-    name: bill.name,
-    amount: bill.amount,
-    paid: bill.paid
-  }, function (error, savedBill) {
+  requestJson("PATCH", "/api/bills/" + bill.id, { name: bill.name, amount: bill.amount, paid: bill.paid }, function (error, savedBill) {
     if (error) {
-      console.error(error);
       setSyncStatus("Save failed", "sync-error");
       return;
     }
@@ -236,43 +274,34 @@ function saveBillNow(bill) {
       }
     }
 
-    render();
+    renderBills();
+    renderSummary();
     setSyncStatus("Synced", "sync-ok");
   });
 }
 
 function renderSummary() {
-  var paidTotal = sumBills(function (bill) { return bill.paid === "YES"; });
-  var unpaidTotal = sumBills(function (bill) { return bill.paid !== "YES"; });
-  var tithesTotal = paidTotal * state.tithesRate;
+  var paidTotal = 0;
+  var unpaidTotal = 0;
+
+  for (var i = 0; i < state.bills.length; i += 1) {
+    var amount = isFinite(state.bills[i].amount) ? state.bills[i].amount : 0;
+    if (state.bills[i].paid === "YES") paidTotal += amount;
+    else unpaidTotal += amount;
+  }
 
   elements.unpaidTotal.textContent = formatCurrency(unpaidTotal);
   elements.paidTotal.textContent = formatCurrency(paidTotal);
-  elements.tithesRate.textContent = Math.round(state.tithesRate * 100) + "%";
-  elements.tithesTotal.textContent = formatCurrency(tithesTotal);
-  elements.asOfLabel.textContent = "As of " + formatDate(new Date());
+  elements.tithesTotal.textContent = formatCurrency(paidTotal * state.tithesRate);
+  elements.tithesRate.textContent = Math.round(state.tithesRate * 100) + "% rate";
+  elements.asOfLabel.textContent = labelForMonth(state.selectedMonth);
 }
 
-function sumBills(predicate) {
-  var total = 0;
-  for (var i = 0; i < state.bills.length; i += 1) {
-    if (predicate(state.bills[i])) {
-      total += normalizeAmount(state.bills[i].amount);
-    }
+function labelForMonth(monthKey) {
+  for (var i = 0; i < state.months.length; i += 1) {
+    if (state.months[i].value === monthKey) return state.months[i].label;
   }
-  return total;
-}
-
-function normalizeAmount(amount) {
-  return isFinite(amount) ? amount : 0;
-}
-
-function formatCurrency(value) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
-}
-
-function formatDate(date) {
-  return new Intl.DateTimeFormat("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }).format(date);
+  return monthKey;
 }
 
 function setSyncStatus(label, className) {
@@ -280,32 +309,26 @@ function setSyncStatus(label, className) {
   elements.syncStatus.className = className ? "sync-status " + className : "sync-status";
 }
 
+function formatCurrency(value) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
+}
+
 function requestJson(method, url, body, callback) {
   var request = new XMLHttpRequest();
   request.open(method, url, true);
   request.setRequestHeader("Accept", "application/json");
-
-  if (body) {
-    request.setRequestHeader("Content-Type", "application/json");
-  }
+  if (body) request.setRequestHeader("Content-Type", "application/json");
 
   request.onreadystatechange = function () {
     if (request.readyState !== 4) return;
-
     if (request.status >= 200 && request.status < 300) {
-      if (!request.responseText) {
-        callback(null, null);
-        return;
-      }
-
+      if (!request.responseText) return callback(null, null);
       try {
-        callback(null, JSON.parse(request.responseText));
+        return callback(null, JSON.parse(request.responseText));
       } catch (error) {
-        callback(error);
+        return callback(error);
       }
-      return;
     }
-
     callback(new Error("Request failed with status " + request.status));
   };
 

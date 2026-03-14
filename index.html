@@ -3,99 +3,93 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>JM Expenses</title>
+    <title>JM Dashboard</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <div class="app-shell">
-      <header class="hero-card">
-        <div class="hero-meta">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">JM Dashboard</p>
+          <h1 class="app-title">Operations Home</h1>
+        </div>
+        <button id="home-button" class="ghost-button" type="button">Dashboard</button>
+      </header>
+
+      <section id="dashboard-view" class="view-section">
+        <div class="hero-card">
+          <p class="section-label">Modules</p>
+          <h2 class="hero-title">Choose a workspace</h2>
+          <p class="hero-copy">This dashboard will hold expenses, tax documents, and the next finance tools we add.</p>
+        </div>
+
+        <div class="module-grid">
+          <button id="expenses-module" class="module-card module-card-primary" type="button">
+            <span class="module-status">Live</span>
+            <strong class="module-title">Expenses</strong>
+            <span class="module-copy">March is built. January 2026 onward is now selectable.</span>
+          </button>
+
+          <button class="module-card module-card-muted" type="button" disabled>
+            <span class="module-status">Not yet built</span>
+            <strong class="module-title">View Tax Docs</strong>
+            <span class="module-copy">PDF returns and tax records will live here next.</span>
+          </button>
+        </div>
+      </section>
+
+      <section id="expenses-view" class="view-section is-hidden">
+        <div class="expenses-hero">
           <div>
-            <p class="eyebrow">JM Dashboard</p>
-            <p class="hero-kicker">Monthly bills tracker</p>
+            <p class="section-label">Expenses</p>
+            <h2 class="expenses-title">Monthly bills</h2>
+            <p class="expenses-copy">Each month keeps its own bill list and payment status.</p>
           </div>
           <p id="sync-status" class="sync-status">Loading</p>
         </div>
 
-        <div class="hero-total-block">
-          <p class="hero-total-label">Still due today</p>
-          <p class="hero-total-value" id="unpaid-total">$0.00</p>
-          <p class="hero-subtext" id="as-of-label">As of today</p>
+        <div class="selector-card">
+          <label class="month-selector-wrap" for="month-selector">
+            <span class="field-label">Month</span>
+            <select id="month-selector" class="month-selector"></select>
+          </label>
+          <button id="back-button" class="button button-secondary" type="button">Back</button>
         </div>
 
-        <div class="summary-strip" aria-label="Financial summary">
-          <article class="summary-chip">
-            <span class="chip-label">Paid</span>
-            <strong class="chip-value" id="paid-total">$0.00</strong>
+        <div class="summary-grid">
+          <article class="summary-card summary-card-primary">
+            <span class="summary-label">Still Due</span>
+            <strong id="unpaid-total" class="summary-value">$0.00</strong>
+            <span id="as-of-label" class="summary-meta">As of today</span>
           </article>
-          <article class="summary-chip">
-            <span class="chip-label">Tithes</span>
-            <strong class="chip-value" id="tithes-total">$0.00</strong>
+          <article class="summary-card">
+            <span class="summary-label">Paid</span>
+            <strong id="paid-total" class="summary-value">$0.00</strong>
           </article>
-          <article class="summary-chip summary-chip-rate">
-            <span class="chip-label">Rate</span>
-            <strong class="chip-value" id="tithes-rate">10%</strong>
+          <article class="summary-card">
+            <span class="summary-label">Tithes</span>
+            <strong id="tithes-total" class="summary-value">$0.00</strong>
+            <span id="tithes-rate" class="summary-meta">10%</span>
           </article>
         </div>
-      </header>
 
-      <section class="action-dock" aria-label="Quick actions">
-        <button id="add-bill-button" class="button button-primary" type="button">Add Bill</button>
-        <button id="reset-button" class="button button-secondary" type="button">Reset Month</button>
-      </section>
+        <section class="action-dock">
+          <button id="add-bill-button" class="button button-primary" type="button">Add Bill</button>
+          <button id="reset-button" class="button button-secondary" type="button">Reset Month</button>
+        </section>
 
-      <main class="main-stack">
-        <section class="list-panel" aria-labelledby="bills-title">
+        <section class="list-panel">
           <div class="section-head">
             <div>
-              <p class="section-label">Bills</p>
-              <h1 id="bills-title">Tap To Update</h1>
+              <p class="section-label">Bill list</p>
+              <h3 class="panel-title">Tap to update</h3>
             </div>
-            <p class="section-note">Paid bills drop out of the balance automatically.</p>
+            <p class="section-note">Paid bills stay saved to that month only.</p>
           </div>
-
           <div id="bills-list" class="bills-list"></div>
         </section>
-
-        <section class="tips-panel" aria-labelledby="tips-title">
-          <div class="tips-head">
-            <p class="section-label">Quick guide</p>
-            <h2 id="tips-title">How to use it</h2>
-          </div>
-          <ul class="tips-list">
-            <li>Tap <strong>Paid</strong> when a bill is done.</li>
-            <li>Use <strong>Add Bill</strong> for new monthly expenses.</li>
-            <li>Use <strong>Reset Month</strong> to start fresh.</li>
-          </ul>
-        </section>
-      </main>
+      </section>
     </div>
-
-    <template id="bill-card-template">
-      <article class="bill-card">
-        <div class="bill-top-row">
-          <label class="bill-name-wrap">
-            <span class="field-label">Bill</span>
-            <input class="bill-name-input" type="text" aria-label="Bill name" />
-          </label>
-          <label class="bill-amount-wrap">
-            <span class="field-label">Amount</span>
-            <div class="amount-input-wrap">
-              <span class="currency-mark">$</span>
-              <input class="bill-amount-input" type="number" min="0" step="0.01" inputmode="decimal" aria-label="Bill amount" />
-            </div>
-          </label>
-        </div>
-
-        <div class="bill-bottom-row">
-          <div class="toggle-group" role="group" aria-label="Paid status">
-            <button class="toggle-button" type="button" data-value="NO">Unpaid</button>
-            <button class="toggle-button" type="button" data-value="YES">Paid</button>
-          </div>
-          <button class="delete-link delete-row-button" type="button">Delete</button>
-        </div>
-      </article>
-    </template>
 
     <script src="./app.js"></script>
   </body>
