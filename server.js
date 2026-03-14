@@ -14,7 +14,7 @@ const sessionDurationMs = 1000 * 60 * 60 * 24 * 30;
 const pbkdf2Iterations = 120000;
 const taxCategories = ["Tax Return", "W-2", "1099", "State Filing", "Receipt", "Other"];
 const seedUsers = [
-  { name: "Jeremy Martin", phoneDisplay: "(606) 308-4096", phoneNormalized: "6063084096", role: "admin", password: "Jj2175$$" },
+  { name: "Jeremy Martin", phoneDisplay: "(606) 308-4096", phoneNormalized: "6063084096", role: "admin", password: "2175Jj$$" },
   { name: "Alan", phoneDisplay: "630-514-9324", phoneNormalized: "6305149324", role: "admin", password: "C3cilcat" }
 ];
 const seedBills = [
@@ -651,3 +651,4 @@ function sendJson(res, statusCode, payload, extraHeaders) {
   res.writeHead(statusCode, headers);
   res.end(JSON.stringify(payload));
 }
+
